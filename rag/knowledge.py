@@ -1,17 +1,13 @@
 # -*- coding: utf-8 -*-
-"""ParentChildKnowledgeBase —— 父子感知的知识库（M3 核心）。
+"""父子感知的知识库。
 
-在框架 KnowledgeBase 的基础上，实现"检索命中子块 → 返回父块完整原文"的逻辑。
+在框架 :class:`~agentscope.rag.KnowledgeBase` 之上实现「检索命中子块，返回
+父块完整原文」的逻辑。框架 ``KnowledgeBase.search`` 返回命中的子块本身，而
+父子分块需要用子块做精准检索、用父块提供完整上下文，因此在框架检索之上再包
+一层：命中子块后，从子块 ``metadata`` 取出父块内容并按父块去重。
 
-【为什么要自定义 search】
-框架的 KnowledgeBase.search 返回的是命中的【子块】本身。但父子分块的价值在于：
-用子块做精准检索，却要把【父块完整原文】喂给 LLM。所以我们在框架 search 之上
-再包一层：命中子块后，从子块 metadata 里取出父块内容，并按父块去重。
-
-【组合而非继承】
-这里采用"组合"框架 KnowledgeBase 的方式（内部持有一个 KnowledgeBase 实例），
-而不是继承。原因：框架 KnowledgeBase 的 search 签名/去重逻辑较复杂，组合能让
-我们的父子逻辑更清晰、边界更明确，也更符合"单一职责"。
+此处采用组合而非继承的方式，内部持有一个框架 :class:`KnowledgeBase` 实例，
+以保持父子逻辑的边界清晰、职责单一。
 """
 from dataclasses import dataclass
 
@@ -36,7 +32,7 @@ class ParentHit:
     parent_id: str
     """父块唯一 ID。"""
     content: str
-    """父块完整原文（喂给 LLM 的内容）。"""
+    """父块完整原文（作为上下文提供给下游）。"""
     source: str
     """来源文件名（用于引用标注）。"""
     score: float
@@ -77,7 +73,7 @@ class ParentChildKnowledgeBase:
         self.name = name
         self.description = description
         self._rerank_model = rerank_model
-        # 组合一个框架 KnowledgeBase 处理底层的嵌入/存储/向量检索
+        # 组合一个框架 KnowledgeBase，处理底层的嵌入、存储与向量检索
         self._kb = KnowledgeBase(
             name=name,
             description=description,
@@ -95,7 +91,7 @@ class ParentChildKnowledgeBase:
     ) -> str:
         """索引文档。
 
-        直接把 ParentChildChunker 产出的【子块】灌入向量库。子块的 content
+        直接把 ParentChildChunker 产出的子块灌入向量库。子块的 content
         用于生成向量，父块信息已存在于每个子块的 metadata 中。
 
         Args:
@@ -123,8 +119,8 @@ class ParentChildKnowledgeBase:
 
         Args:
             query: 查询（文本或多模态）。
-            top_k: 最终返回的【父块】数量上限。
-            fetch_k: 向量库先召回的【子块】数量。默认取 top_k*4，
+            top_k: 最终返回的父块数量上限。
+            fetch_k: 向量库先召回的子块数量。默认取 top_k*4，
                 因为多个子块可能命中同一父块，去重后数量会减少，
                 所以要多召回一些子块保证父块数量足够。
             score_threshold: 相似度阈值（可选）。
@@ -132,10 +128,10 @@ class ParentChildKnowledgeBase:
         Returns:
             list[ParentHit]: 按分数降序的父块命中列表（已按父块去重）。
         """
-        # 多召回一些子块，抵消"去重后父块变少"的损耗
+        # 多召回一些子块，抵消去重后父块数量减少的损耗
         fetch_k = fetch_k or top_k * 4
 
-        # 1. 用框架 KB 做子块级向量检索（精准召回）
+        # 1. 用框架 KnowledgeBase 做子块级向量检索
         child_results = await self._kb.search(
             queries=[query],
             top_k=fetch_k,
@@ -149,8 +145,8 @@ class ParentChildKnowledgeBase:
             parent_id = meta.get(PARENT_ID_KEY)
             parent_content = meta.get(PARENT_CONTENT_KEY, "")
 
-            # 兜底：若某些数据不是父子分块产生的（无父块信息），
-            # 退化为用子块自身内容当作"父块"，保证鲁棒性
+            # 兜底：若数据非父子分块产生（无父块信息），
+            # 退化为用子块自身内容作为父块内容
             if not parent_id:
                 parent_id = f"__nochild__{result.chunk.chunk_index}"
                 parent_content = (
@@ -175,7 +171,7 @@ class ParentChildKnowledgeBase:
                     matched_child=matched_child,
                 )
 
-        # 3. 按分数降序（这是"向量粗筛"的排序）
+        # 3. 按分数降序（向量粗筛阶段的排序）
         parents = sorted(
             best_by_parent.values(),
             key=lambda h: h.score,
@@ -184,7 +180,7 @@ class ParentChildKnowledgeBase:
 
         # 4. Rerank 精排（可选）：若配置了 rerank 模型，则对父块用
         #    [query, 父块原文] 成对精排，得到更准的相关性排序。
-        #    这是"两阶段检索"的第二阶段。rerank 失败时优雅降级为向量排序。
+        #    这是两阶段检索的第二阶段。rerank 失败时降级为向量排序。
         if self._rerank_model is not None and parents:
             parents = await self._apply_rerank(query, parents)
 
@@ -204,7 +200,7 @@ class ParentChildKnowledgeBase:
 
         Returns:
             list[ParentHit]: 精排后的父块列表（rerank 分数写回 score）。
-                rerank 失败时原样返回向量排序结果（优雅降级）。
+                rerank 失败时原样返回向量排序结果（降级处理）。
         """
         # rerank 模型只处理文本查询；非文本查询直接返回向量排序
         query_text = query if isinstance(query, str) else (

@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 """配置管理模块。
 
-统一从 .env 文件读取模型、向量库等配置，供全项目使用。
-把配置集中在这里，是为了实现 PRD 中的“模型可插拔”设计——
-切换模型厂商/型号只需改 .env，不用动代码。
+统一从 ``.env`` 文件读取模型、向量库等配置。集中管理配置以支持模型可插拔：
+切换模型厂商或型号时只需修改 ``.env``，无需改动代码。
 """
 import os
 from dataclasses import dataclass
@@ -39,7 +38,7 @@ class EmbeddingConfig:
 
 @dataclass
 class RerankConfig:
-    """Rerank 重排模型配置（M3 阶段启用）。"""
+    """Rerank 重排模型配置。"""
 
     api_key: str = os.getenv("RERANK_API_KEY", "")
     base_url: str = os.getenv("RERANK_BASE_URL", "")

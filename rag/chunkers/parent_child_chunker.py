@@ -1,35 +1,24 @@
 # -*- coding: utf-8 -*-
-"""ParentChildChunker —— 父子分块器（本项目核心差异化能力）。
+"""父子分块器（Parent-Child Chunker）。
 
-【要解决的问题】
-RAG 分块存在一个经典矛盾：
-  - 块切太小 → 向量检索精准，但上下文残缺，LLM 拿到的信息不完整，答不好；
-  - 块切太大 → 上下文完整，但语义被稀释，向量检索不准，召回率低。
+分块粒度存在权衡：块过小时向量检索精准但上下文残缺，块过大时上下文完整
+但语义被稀释、检索召回率下降。父子分块将分块分为两层来兼顾两者：
 
-【父子分块的解法】
-把分块做成两层：
-  - 父块（Parent）：较大的语义段落（默认 ~512 token），保存完整原文；
-  - 子块（Child）：在父块内部再切成小块（默认 ~128 token），用于向量检索。
-检索时：用子块向量做精准召回，但返回子块所属的【父块完整原文】给 LLM。
-这样同时拿到了"检索精度"和"回答完整性"。
+- 父块（Parent）：较大的语义段落（默认约 512 token），保存完整原文；
+- 子块（Child）：在父块内部再切成小块（默认约 128 token），用于向量检索。
 
-【在 AgentScope 架构下的实现决策】
-框架的 Chunk 是单层扁平结构，但它带一个 metadata: dict 字段，且向量库会
-持久化 metadata。因此本实现采用一个轻量而优雅的方案：
-  - 只把【子块】作为 Chunk 存入向量库（子块的 content 用于生成向量）；
-  - 把【父块的完整内容】和【父块 ID】塞进子块的 metadata。
-检索命中子块后，直接从 metadata["parent_content"] 取出父块原文，
-无需引入额外的数据库。这完全复用框架的向量库能力。
+检索时用子块向量做精准召回，返回子块所属父块的完整原文，从而同时获得检索
+精度与上下文完整性。
 
-【继承关系】
-继承框架的 ChunkerBase，只需实现 chunk(sections) -> list[Chunk]。
-框架对 ChunkerBase 的契约要求（见框架源码 _chunker/_base.py）：
-  - 不跨 Section 合并；
-  - DataBlock（图片等）整块透传，不切分；
-  - chunk_index 连续编号 0..N-1；
-  - 每个 Chunk 的 total_chunks 一致（=输出总数）；
-  - 每个 Chunk 的 source/metadata 继承自父 Section。
-本实现严格遵守这些契约。
+实现上，框架的 :class:`Chunk` 为单层扁平结构，但带有 ``metadata`` 字段且
+会被向量库持久化。因此本实现只将子块作为 :class:`Chunk` 存入向量库（子块
+``content`` 用于生成向量），并把父块的完整内容与 ID 写入子块 ``metadata``。
+检索命中子块后，直接从 ``metadata`` 取出父块原文，无需额外的数据库。
+
+本类继承 :class:`~agentscope.rag.ChunkerBase`，遵守其分块契约：不跨 Section
+合并；:class:`DataBlock` 整块透传不切分；``chunk_index`` 连续编号 0..N-1；
+所有 Chunk 的 ``total_chunks`` 一致；每个 Chunk 的 ``source`` / ``metadata``
+继承自其父 Section。
 """
 from bisect import bisect_right
 from itertools import accumulate
@@ -50,7 +39,7 @@ PARENT_INDEX_KEY = "parent_index"      # 父块在文档中的序号
 class ParentChildChunker(ChunkerBase):
     """父子分块器。
 
-    先把每个 Section 切成父块，再把每个父块切成子块；输出的是【子块】列表，
+    先把每个 Section 切成父块，再把每个父块切成子块，输出的是子块列表，
     每个子块的 metadata 里携带其父块的完整内容与 ID。
     """
 
@@ -91,7 +80,7 @@ class ParentChildChunker(ChunkerBase):
         self.child_overlap = child_overlap
 
     async def chunk(self, sections: list[Section]) -> list[Chunk]:
-        """把 Sections 切成【子块】列表，每个子块携带其父块信息。
+        """把 Sections 切成子块列表，每个子块携带其父块信息。
 
         Args:
             sections: Parser 产出的 Section 列表（文档顺序）。

@@ -1,19 +1,11 @@
 # -*- coding: utf-8 -*-
-"""ArkVisionEmbeddingModel —— 火山方舟 doubao-embedding-vision 适配器。
+"""火山方舟 doubao-embedding-vision 嵌入模型适配器。
 
-【框架原理】
-继承 EmbeddingModelBase 只需实现一个核心方法 _call_api(inputs) -> EmbeddingResponse。
-框架的 __call__ 已经帮你做好了：
-  1. 把 TextBlock 自动解包为 .text 字符串
-  2. 按 batch_size 分批
-  3. 跨批次并发调用 asyncio.gather
-  4. 自动重试（可重试异常）
-  5. 合并结果
-
-我们只需要告诉框架三件事：
-  - batch_size=1（因为火山 multimodal 端点每次只接受一条输入）
-  - 如何把 inputs 序列化成火山要求的请求格式
-  - 如何从火山响应中提取 embedding 向量
+继承 :class:`~agentscope.embedding.EmbeddingModelBase`，只需实现
+``_call_api(inputs) -> EmbeddingResponse``。基类的 ``__call__`` 已负责将
+TextBlock 解包为字符串、按 batch_size 分批、跨批次并发调用、失败重试与结果
+合并。本适配器需提供三项：batch_size 设为 1（火山 multimodal 端点每次仅接受
+一条输入）、将 inputs 序列化为火山要求的请求格式、从响应中提取向量。
 """
 import json
 from datetime import datetime
@@ -39,8 +31,8 @@ class ArkVisionEmbeddingModel(EmbeddingModelBase[str | TextBlock | DataBlock]):
     支持纯文本和图片输入。图片支持 Base64 编码和 URL 两种方式。
     """
 
-    # 火山 multimodal 端点每次只接受一条输入，batch_size 固定为 1
-    # 框架的 __call__ 会自动并发处理多条输入
+    # 火山 multimodal 端点每次只接受一条输入，batch_size 固定为 1；
+    # 基类 __call__ 会自动并发处理多条输入
     _BATCH_SIZE = 1
 
     def __init__(
@@ -79,28 +71,26 @@ class ArkVisionEmbeddingModel(EmbeddingModelBase[str | TextBlock | DataBlock]):
         self.api_key = credential.api_key.get_secret_value()
         base = credential.base_url.rstrip("/")
 
-        # 稳健地拼接端点：
-        # - 若 .env 里的 base_url 已经是完整的 multimodal 端点
-        #   （如 .../api/v3/embeddings/multimodal），直接使用，避免重复拼接；
-        # - 否则在其后补上 /embeddings/multimodal。
-        # 这样无论用户在 .env 里填 base 根路径还是完整端点都能正确工作。
+        # 拼接端点：若 base_url 已是完整的 multimodal 端点
+        #（如 .../api/v3/embeddings/multimodal）则直接使用，避免重复拼接；
+        # 否则在其后补上 /embeddings/multimodal。
         chosen_endpoint = endpoint or _MULTIMODAL_ENDPOINT
         if base.endswith(chosen_endpoint):
             self._full_url = base
         else:
             self._full_url = f"{base}{chosen_endpoint}"
 
-        # 多模态模型标记为 True，让 KnowledgeBase.search 知道可以传入 DataBlock
+        # 标记为多模态模型，使 KnowledgeBase.search 允许传入 DataBlock
         self.supports_multimodal = True
 
     @classmethod
     def _get_retryable_exceptions(cls) -> tuple[type[Exception], ...]:
         """声明可重试异常。
 
-        火山方舟偶发 500 InternalServiceError（其提示信息本身就是
-        "Please retry later"），属于服务端临时抖动。我们把 RuntimeError
-        纳入可重试范围——_call_api 在非 200 响应时抛出 RuntimeError，
-        框架的重试机制（max_retries + retry_delay）会自动重试。
+        火山方舟偶发 500 InternalServiceError（提示信息为 "Please retry
+        later"），属于服务端临时抖动。此处将 RuntimeError 纳入可重试范围：
+        ``_call_api`` 在非 200 响应时抛出 RuntimeError，基类的重试机制
+        （max_retries + retry_delay）会自动重试。
         """
         return (RuntimeError,)
 

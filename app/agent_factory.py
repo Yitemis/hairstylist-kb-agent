@@ -1,13 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Agent 工厂：负责组装一个可用的 Agent 实例。
+"""Agent 工厂：组装可用的 Agent 实例。
 
-本模块把“模型 + 工具 + 系统提示词”拼装成一个 Agent。
-M0 阶段先做最简版本（无工具、无 RAG），后续里程碑会逐步往里加东西。
+将模型、工具与系统提示词拼装为一个 Agent。当前为基础版本（无工具、无
+RAG），后续会逐步接入。
 
-【框架原理】
-- Agent 是 AgentScope 的核心类，构造时至少需要 name / system_prompt / model 三样。
-- 火山方舟提供 OpenAI 兼容接口，因此我们用框架自带的 OpenAIChatModel，
-  只需把 base_url 指向火山方舟端点即可——这就是“模型可插拔”的体现。
+:class:`~agentscope.agent.Agent` 构造时至少需要 name、system_prompt、model
+三项。火山方舟提供 OpenAI 兼容接口，因此直接使用框架自带的
+:class:`~agentscope.model.OpenAIChatModel`，将 base_url 指向火山方舟端点即可。
 """
 from agentscope.agent import Agent
 from agentscope.credential import OpenAICredential
@@ -16,7 +15,7 @@ from agentscope.model import OpenAIChatModel
 from .config import chat_config
 
 
-# 美发知识助手的系统提示词（Agent 的“人设”与行为准则）
+# 美发知识助手的系统提示词
 HAIRSTYLIST_SYSTEM_PROMPT = """你是一名资深的美发行业技术顾问，服务对象是发型师和门店员工。
 
 你的职责：
@@ -40,13 +39,13 @@ def build_chat_model() -> OpenAIChatModel:
     return OpenAIChatModel(
         credential=credential,
         model=chat_config.model,
-        # 火山方舟的 Doubao 等模型支持流式输出，打开它以便实现打字机效果
+        # 开启流式输出以实现打字机效果
         stream=True,
     )
 
 
 def build_agent() -> Agent:
-    """组装并返回一个美发知识助手 Agent（M0 最简版）。
+    """组装并返回一个美发知识助手 Agent。
 
     Returns:
         Agent: 配置好模型与系统提示词的 Agent 实例。

@@ -1,17 +1,16 @@
 # -*- coding: utf-8 -*-
-"""ArkRerankModel —— 火山方舟 Rerank 模型实现。
+"""火山方舟 Rerank 模型实现。
 
-火山方舟的 rerank 一般提供 OpenAI 风格的 HTTP 端点，请求体形如：
-    { "model": "<接入点>", "query": "...", "documents": ["...", "..."] }
-响应体一般形如：
-    { "results": [ {"index": 0, "relevance_score": 0.98}, ... ] }
+火山方舟的 Rerank 提供 HTTP 端点，请求体形如::
 
-由于不同版本字段名可能略有差异，本实现对响应做了兼容解析
-（relevance_score / score 均可）。
+    {"model": "<接入点>", "query": "...", "documents": ["...", "..."]}
 
-【健壮性】继承自我们在 embedding 适配器上的经验：
-  - 稳健的 URL 拼接（避免重复拼接端点路径）；
-  - 简单重试（应对服务端偶发 5xx 抖动）。
+响应体形如::
+
+    {"results": [{"index": 0, "relevance_score": 0.98}, ...]}
+
+不同版本的响应字段名可能不同，此实现对 ``relevance_score`` 与 ``score``
+两种命名均做兼容解析，并在网络抖动时进行有限次重试。
 """
 import asyncio
 
@@ -48,7 +47,7 @@ class ArkRerankModel(RerankModelBase):
         self.retry_delay = retry_delay
         self.timeout = timeout
 
-        # 稳健拼接 /rerank 端点：若已包含则不重复拼接（吸取 embedding 的教训）
+        # 拼接 /rerank 端点：若 base_url 已包含则不重复拼接
         base = base_url.rstrip("/")
         if base.endswith("/rerank"):
             self._url = base
@@ -106,7 +105,7 @@ class ArkRerankModel(RerankModelBase):
                 if attempt < self.max_retries:
                     await asyncio.sleep(self.retry_delay)
 
-        # 重试耗尽仍失败：抛出让上层决定是否降级
+        # 重试耗尽仍失败：抛出异常，由上层决定是否降级
         raise RuntimeError(f"火山 rerank 调用失败: {last_error}")
 
     @staticmethod
@@ -124,6 +123,6 @@ class ArkRerankModel(RerankModelBase):
             parsed.append(
                 RerankResult(index=item["index"], score=float(score)),
             )
-        # 保险起见按分数降序（多数 API 已排序，这里再确保一次）
+        # 多数 API 已按分数排序，此处再确保一次降序
         parsed.sort(key=lambda r: r.score, reverse=True)
         return parsed

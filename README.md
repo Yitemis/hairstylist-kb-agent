@@ -6,14 +6,14 @@
 
 > **合规声明**：本项目所有代码基于开源框架 AgentScope（Apache-2.0）从零实现，借鉴行业通用的 RAG 工程理念，不包含任何第三方商业项目的源代码或私有实现。测试数据来源于公开资料，仅用于技术演示。
 
-## 核心技术亮点
+## 特性
 
-- **父子分块（Parent-Child Chunking）**：小块保证检索精度，大块保证回答完整性
-- **两阶段检索**：向量粗筛 + Rerank 精排，显著提升准确率
-- **多格式 & 表格深加工**：解决表格类文档检索难题
-- **Agentic RAG**：Agent 自主决策何时检索，而非被动召回
-- **流式事件驱动**：Web 界面打字机式实时输出
-- **模型可插拔**：火山方舟 / 通义等厂商可自由切换
+- **父子分块（Parent-Child Chunking）**：用小块做向量检索、用大块提供上下文，兼顾检索精度与上下文完整性
+- **两阶段检索**：向量检索粗筛 + Rerank 精排，Rerank 组件可选注入、缺省时降级为纯向量检索
+- **多格式解析**：支持 Markdown、PDF、Excel 等文档，表格转结构化文本
+- **Agentic RAG**：由 Agent 自主判断是否检索，而非被动召回
+- **流式输出**：基于事件驱动的实时输出
+- **模型可插拔**：通过 OpenAI 兼容接口接入火山方舟等厂商，切换只需修改配置
 
 ## 项目结构
 
@@ -41,10 +41,10 @@ python -m venv .venv
 # 2. 安装依赖
 pip install -r requirements.txt
 
-# 3. 配置模型（复制 .env.example 为 .env 并填入你的 key）
+# 3. 配置模型（复制 .env.example 为 .env 并填入 API Key）
 copy .env.example .env         # Windows
 
-# 4. 运行 Hello World Agent
+# 4. 运行
 python main.py
 ```
 
