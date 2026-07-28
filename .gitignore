@@ -1,0 +1,28 @@
+# 环境与密钥
+.env
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# IDE
+.idea/
+.vscode/
+
+# 数据与日志
+*.log
+temp/
+
+# 忽略运行时数据，但保留示例知识文档（用于演示 RAG）
+data/*
+!data/knowledge/
+data/knowledge/*
+!data/knowledge/*.md
+
+# 临时/辅助文件
+_chat_*.txt
+_test_*.py
