@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """FastAPI 后端：企业级 Agent 服务。
 
 基于 AgentScope 原生能力的企业级服务层：
@@ -153,6 +153,60 @@ async def index() -> str:
 
 
 @app.get("/chat")
+
+
+@app.get('/api/rag/search')
+async def rag_search(
+    query: str,
+    tenant_id: str = 'default',
+    top_k: int = 5,
+    enable_self_rag: bool = True,
+) -> dict:
+    """RAG 检索接口（支持多租户 + Self-RAG 优化）。"""
+    from app.rag.engine import retrieve, self_rag_retrieve
+
+    if enable_self_rag:
+        result = await self_rag_retrieve(query, tenant_id=tenant_id, top_k=top_k)
+    else:
+        result = await retrieve(query, tenant_id=tenant_id, top_k=top_k)
+
+    return {
+        'hits': [
+            {
+                'source': hit.source,
+                'content': hit.content,
+                'score': hit.score,
+            }
+            for hit in result.hits
+        ],
+        'stats': {
+            'retrieval_time_ms': result.retrieval_time_ms,
+            'child_hits_count': result.child_hits_count,
+            'parent_count': result.parent_count,
+            'rerank_applied': result.rerank_applied,
+        },
+        'tenant_id': tenant_id,
+    }
+
+
+@app.post('/api/rag/index')
+async def rag_index_document(
+    document_id: str,
+    content: str,
+    filename: str,
+    tenant_id: str = 'default',
+    category: str = 'general',
+) -> dict:
+    """API 方式索引单个文档。"""
+    from app.rag.engine import index_document
+    return await index_document(document_id, content, filename, tenant_id, category)
+
+
+@app.get('/api/rag/stats')
+async def rag_stats(tenant_id: str | None = None) -> dict:
+    """知识库统计接口（监控面板用）。"""
+    from app.rag.engine import get_knowledge_stats
+    return await get_knowledge_stats(tenant_id)
 async def chat(message: str, session_id: str | None = None) -> dict:
     """对话接口。
 
