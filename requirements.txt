@@ -1,27 +1,31 @@
 # ============================================================
-# 美发知识助手 - 依赖清单
+# 美发智能知识助手 - 企业级依赖清单
 # ============================================================
+# 安装方式：pip install -r requirements.txt
 
-# --- Agent 框架 ---
-# 方式一（推荐，便于同时阅读框架源码）：以可编辑模式安装本地框架源码
-#   pip install -e e:/agentscope-main
-# 方式二：从 PyPI 安装
-#   agentscope>=2.0
-#
-# 说明：这里不直接写 agentscope，避免和本地可编辑安装冲突。
-# 请按 README 的“快速开始”单独安装框架。
+# --- Agent 框架核心 ---
+# 项目底座：多 Agent 编排、工具调用、记忆、流式输出
+# 源码：https://github.com/agentscope/agentscope
+agentscope>=0.8.0
+
+# --- Web 服务 ---
+# FastAPI + Uvicorn: 高性能异步服务框架
+fastapi>=0.104.0
+uvicorn>=0.24.0
+python-multipart>=0.0.6
+
+# --- 向量库（本地模式，零部署依赖） ---
+# Qdrant 纯 Python 本地模式：数据存 SQLite 文件
+# 生产环境可切换到独立部署的 Qdrant / Milvus
+qdrant-client>=1.7.0
 
 # --- 配置管理 ---
 python-dotenv>=1.0.0
 
-# --- 向量库（Qdrant，纯 Python 嵌入式模式，零 Docker） ---
-# 开发使用本地持久化模式（SQLite 文件），生产可切换至远程集群
-qdrant-client>=1.7.0
+# --- 监控与可观测性（生产环境） ---
+prometheus-client>=0.19.0
 
-# --- Web 后端（M6 阶段用） ---
-# fastapi
-# uvicorn
-
-# --- 后续阶段按需添加 ---
-# 多格式解析: pypdf / python-docx / openpyxl / python-pptx
-# Rerank: 视选型而定
+# --- 测试依赖（开发环境） ---
+# pytest>=7.0.0
+# pytest-asyncio>=0.21.0
+# pytest-cov>=4.1.0

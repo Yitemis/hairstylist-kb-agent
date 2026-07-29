@@ -1,62 +1,45 @@
 # -*- coding: utf-8 -*-
-"""应用入口：命令行流式对话。
+"""美发智能知识助手 - 企业级主入口。
 
-运行方式::
-
+运行模式：
+    # 1. Web 服务模式（默认，推荐）
     python main.py
 
-演示 :meth:`Agent.reply_stream` 的事件驱动流式输出：该方法是异步生成器，
-逐步产生一系列事件，通过监听 ``TEXT_BLOCK_DELTA`` 事件即可实现打字机式的
-实时输出，也是后续 Web 界面流式输出的基础。
+    # 2. 命令行对话模式（调试用）
+    python main.py --cli
+
+环境配置：
+    复制 .env.example 为 .env，填入火山方舟 API Key。
+    不同环境可使用 .env.dev / .env.staging / .env.prod。
 """
 import asyncio
 import sys
+from pathlib import Path
 
-# Windows 终端默认 GBK 编码，打印 emoji / 部分字符会报 UnicodeEncodeError。
-# 强制标准输出/错误使用 UTF-8，保证跨平台一致的显示效果。
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+import uvicorn
+from dotenv import load_dotenv
 
-from agentscope.event import EventType
-from agentscope.message import UserMsg
+# 添加项目根目录到 Python 路径
+PROJECT_ROOT = Path(__file__).parent
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.agent_factory import build_agent
-from app.config import is_chat_ready
-
-
-async def chat_once(agent, user_input: str) -> None:
-    """向 Agent 发送一句话，并以打字机方式流式打印回复。
-
-    Args:
-        agent: 已组装好的 Agent 实例。
-        user_input: 用户输入的文本。
-    """
-    # reply_stream 返回一个异步事件流，逐个事件处理
-    async for event in agent.reply_stream(UserMsg("用户", user_input)):
-        # 只处理文本增量事件，拼出打字机效果
-        if getattr(event, "type", None) == EventType.TEXT_BLOCK_DELTA:
-            print(event.delta, end="", flush=True)
-    print()  # 回复结束后换行
+# 加载配置（必须在导入 app 模块之前）
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 
-async def main() -> None:
-    """命令行交互主循环。"""
-    # 启动前检查模型配置是否填写完整
-    if not is_chat_ready():
-        print("=" * 60)
-        print("模型尚未配置完整。")
-        print("请复制 .env.example 为 .env，并填入火山方舟的：")
-        print("  - CHAT_API_KEY（API Key）")
-        print("  - CHAT_BASE_URL（火山方舟 OpenAI 兼容端点）")
-        print("  - CHAT_MODEL（对话模型型号）")
-        print("=" * 60)
-        return
+from app.core.config import ENV, print_config_summary, chat_config  # noqa: E402
+from app.core.agent_factory import build_agent  # noqa: E402
+
+
+def run_cli_mode() -> None:
+    """命令行对话模式（调试用）。"""
+    from agentscope.message import UserMsg
 
     agent = build_agent()
+
     print("=" * 60)
-    print("美发知识助手已启动。")
-    print("输入问题开始对话，输入 'exit' 或 'quit' 退出。")
+    print("🪮 美发知识助手（命令行模式）")
+    print(f"环境: {ENV.upper()} | 输入 'exit' 退出")
     print("=" * 60)
 
     while True:
@@ -73,8 +56,40 @@ async def main() -> None:
             continue
 
         print("助手：", end="", flush=True)
-        await chat_once(agent, user_input)
+
+        # 使用 AgentScope 原生流式输出
+        msg = UserMsg("用户", user_input)
+        response = agent(msg)
+        print(response.content)
+
+
+def run_server_mode() -> None:
+    """Web 服务模式（企业级生产模式）。"""
+    from app.server.api import app
+    from app.core.config import server_config
+
+    print_config_summary()
+
+    uvicorn.run(
+        app,
+        host=server_config.host,
+        port=server_config.port,
+        workers=server_config.workers,
+        log_level=logging_config.level.lower(),  # type: ignore[name-defined] # noqa: F821
+    )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # 命令行参数解析
+    if "--cli" in sys.argv:
+        # 命令行调试模式
+        if not chat_config.is_valid:
+            print("=" * 60)
+            print("⚠️  模型尚未配置完整。")
+            print("请复制 .env.example 为 .env，并填入火山方舟 API 配置。")
+            print("=" * 60)
+            sys.exit(1)
+        run_cli_mode()
+    else:
+        # 默认：Web 服务模式
+        run_server_mode()
