@@ -45,10 +45,31 @@ class RerankConfig:
     model: str = os.getenv("RERANK_MODEL", "")
 
 
+@dataclass
+class VectorStoreConfig:
+    """向量库配置（Milvus）。
+
+    通过 ``uri`` 决定运行形态，两者共享同一套 ``MilvusClient`` API：
+
+    - 本地文件（如 ``./data/milvus.db``）：Milvus Lite 嵌入式实例，
+      零部署，仅需安装 pymilvus，适合快速验证（注：不支持 Windows）；
+    - 远程服务（如 ``http://localhost:19530``）：连接独立部署的 Milvus
+      单机版或集群，生产环境使用。
+
+    因两种形态 API 一致，从开发切换到生产只需修改 ``uri``，业务代码无需改动。
+    """
+
+    uri: str = os.getenv("MILVUS_URI", "http://localhost:19530")
+    token: str = os.getenv("MILVUS_TOKEN", "")
+    collection: str = os.getenv("VECTOR_COLLECTION", "hairstylist_kb")
+    metric_type: str = os.getenv("MILVUS_METRIC_TYPE", "COSINE")
+
+
 # 全局单例，导入即用
 chat_config = ChatConfig()
 embedding_config = EmbeddingConfig()
 rerank_config = RerankConfig()
+vector_store_config = VectorStoreConfig()
 
 
 def is_chat_ready() -> bool:
