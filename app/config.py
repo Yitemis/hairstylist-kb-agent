@@ -47,22 +47,25 @@ class RerankConfig:
 
 @dataclass
 class VectorStoreConfig:
-    """向量库配置（Milvus）。
+    """向量库配置（Qdrant）。
 
-    通过 ``uri`` 决定运行形态，两者共享同一套 ``MilvusClient`` API：
+    Qdrant 支持多种运行方式，本项目优先使用纯 Python 的本地模式：
 
-    - 本地文件（如 ``./data/milvus.db``）：Milvus Lite 嵌入式实例，
-      零部署，仅需安装 pymilvus，适合快速验证（注：不支持 Windows）；
-    - 远程服务（如 ``http://localhost:19530``）：连接独立部署的 Milvus
-      单机版或集群，生产环境使用。
+    - ``local``：Python 内嵌的本地持久化模式，数据存指定路径的
+      SQLite 格式文件，零部署、零 Docker，仅需安装 ``qdrant-client``，
+      适合开发与快速验证；
+    - ``memory``：纯内存模式，重启即失，适合单元测试；
+    - ``remote``：连接独立的 Qdrant 服务，生产环境使用。
 
-    因两种形态 API 一致，从开发切换到生产只需修改 ``uri``，业务代码无需改动。
+    不同模式通过同一个 ``QdrantStore`` API 接入，切换时业务代码不变。
     """
 
-    uri: str = os.getenv("MILVUS_URI", "http://localhost:19530")
-    token: str = os.getenv("MILVUS_TOKEN", "")
+    mode: str = os.getenv("QDRANT_MODE", "local")
+    path: str = os.getenv("QDRANT_PATH", "data/qdrant")
+    url: str = os.getenv("QDRANT_URL", "")
+    api_key: str = os.getenv("QDRANT_API_KEY", "")
     collection: str = os.getenv("VECTOR_COLLECTION", "hairstylist_kb")
-    metric_type: str = os.getenv("MILVUS_METRIC_TYPE", "COSINE")
+    metric_type: str = os.getenv("QDRANT_METRIC_TYPE", "COSINE")
 
 
 # 全局单例，导入即用
