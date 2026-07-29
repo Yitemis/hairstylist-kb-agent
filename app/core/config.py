@@ -69,20 +69,29 @@ class ModelConfig:
 
 @dataclass
 class VectorStoreConfig:
-    """向量库配置。"""
+    """向量库配置（生产级多引擎支持）。
 
-    mode: str = "local"  # local / memory / remote
-    path: str = "data/qdrant"
-    url: str = ""
+    引擎选择：
+    - milvus（默认，生产推荐）：Docker Compose 独立部署，带 Attu 可视化面板
+      启动命令：docker-compose -f ops/docker-compose.yml up -d
+      面板地址：http://localhost:3001
+    - qdrant-local：Qdrant Python 内嵌本地文件（快速开发）
+    """
+
+    engine: str = "milvus"  # milvus / qdrant-local
+    host: str = "localhost"
+    port: int = 19530
+    uri: str = ""
     api_key: str = ""
     collection: str = "hairstylist_kb"
     metric_type: str = "COSINE"
+    dims: int = 2048
 
     @property
     def is_valid(self) -> bool:
-        if self.mode == "remote":
-            return bool(self.url)
-        return self.mode in {"local", "memory"}
+        if self.engine == "milvus":
+            return True  # 默认 localhost:19530 无需额外配置
+        return True
 
 
 @dataclass
@@ -141,12 +150,14 @@ embedding_config = _build_model_config("EMBEDDING")
 rerank_config = _build_model_config("RERANK")
 
 vector_store_config = VectorStoreConfig(
-    mode=_get_env("QDRANT_MODE", "local"),
-    path=_get_env("QDRANT_PATH", str(PROJECT_ROOT / "data" / "qdrant")),
-    url=_get_env("QDRANT_URL"),
-    api_key=_get_env("QDRANT_API_KEY"),
+    engine=_get_env("VECTOR_STORE_ENGINE", "milvus"),
+    host=_get_env("VECTOR_STORE_HOST", "localhost"),
+    port=int(_get_env("VECTOR_STORE_PORT", "19530")),
+    uri=_get_env("VECTOR_STORE_URI", ""),
+    api_key=_get_env("VECTOR_STORE_API_KEY", ""),
     collection=_get_env("VECTOR_COLLECTION", "hairstylist_kb"),
-    metric_type=_get_env("QDRANT_METRIC_TYPE", "COSINE"),
+    metric_type=_get_env("VECTOR_METRIC_TYPE", "COSINE"),
+    dims=int(_get_env("VECTOR_DIMS", "2048")),
 )
 
 server_config = ServerConfig(

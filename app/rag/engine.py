@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from agentscope.rag import QdrantStore
+
 
 from app.core.config import vector_store_config
 from app.embedding import build_embedding_model
@@ -50,41 +50,68 @@ class RetrievalResult:
     tenant_id: str
 
 
-_vector_store: QdrantStore | None = None
+_vector_store = None
 _chunker = ParentChildChunker()
 
 
-async def _get_vector_store() -> QdrantStore:
-    """获取向量库实例（懒加载 + 自动建集合）。"""
+async def _get_vector_store():
+    """获取向量库实例（懒加载 + 自动建集合）。
+
+    引擎支持：
+    - milvus（默认，Docker 启动，带可视化面板）
+    - qdrant-local（本地文件快速开发）
+    """
     global _vector_store
     if _vector_store is None:
-        if vector_store_config.mode == "remote":
-            _vector_store = QdrantStore(
-                url=vector_store_config.url,
-                api_key=vector_store_config.api_key,
-            )
-        elif vector_store_config.mode == "memory":
-            _vector_store = QdrantStore(location=":memory:")
-        else:
-            _vector_store = QdrantStore(location=vector_store_config.path)
+        engine = vector_store_config.engine
 
+        if engine == "milvus":
+            from agentscope.rag import MilvusLiteStore
+
+            uri = vector_store_config.uri or f"http://{vector_store_config.host}:{vector_store_config.port}"
+            logger.info("初始化 Milvus 向量库: %s", uri)
+            _vector_store = MilvusLiteStore(uri=uri)
+
+        else:
+            
+            _vector_store = QdrantStore(location=vector_store_config.path)
+            logger.info("初始化 Qdrant 本地向量库: %s", vector_store_config.path)
+
+        # 首次初始化时，自动建集合
         async with _vector_store:
+            client = _vector_store._client
+            exists = False
+
             try:
-                info = await _vector_store._client.get_collection(
-                    collection_name=vector_store_config.collection,
-                )
-                logger.info("向量库集合已存在: %s", vector_store_config.collection)
+                if engine == "milvus":
+                    exists = client.has_collection(vector_store_config.collection)
+                else:
+                    client.get_collection(collection_name=vector_store_config.collection)
+                    exists = True
             except Exception:
-                dims = build_embedding_model().dimensions
+                exists = False
+
+            if not exists:
+                dims = vector_store_config.dims
                 logger.info("创建向量集合: %s (维度: %d)", vector_store_config.collection, dims)
-                from qdrant_client import models as qdrant_models
-                await _vector_store._client.create_collection(
-                    collection_name=vector_store_config.collection,
-                    vectors_config=qdrant_models.VectorParams(
-                        size=dims,
-                        distance=qdrant_models.Distance.COSINE,
-                    ),
-                )
+
+                if engine == "milvus":
+                    client.create_collection(
+                        collection_name=vector_store_config.collection,
+                        dimension=dims,
+                    )
+                else:
+                    from qdrant_client import models as qdrant_models
+                    client.create_collection(
+                        collection_name=vector_store_config.collection,
+                        vectors_config=qdrant_models.VectorParams(
+                            size=dims,
+                            distance=qdrant_models.Distance.COSINE,
+                        ),
+                    )
+            else:
+                logger.info("向量集合已存在: %s", vector_store_config.collection)
+
     return _vector_store
 
 async def index_document(
