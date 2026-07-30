@@ -123,7 +123,8 @@ class LoggingConfig:
 
     level: str = "INFO"
     enable_audit_log: bool = True
-    enable_metrics_port: int = 9090
+    enable_metrics: bool = True
+    metrics_port: int = 9090
     log_retention_days: int = 30
 
 
@@ -231,7 +232,7 @@ def print_config_summary() -> None:
     print(f"   对话模型: {'✓ 已配置' if chat_config.is_valid else '✗ 未配置'}")
     print(f"   嵌入模型: {'✓ 已配置' if embedding_config.is_valid else '✗ 未配置'}")
     print(f"   重排模型: {'✓ 已配置' if rerank_config.is_valid else '○ 可选'}")
-    print(f"\n🗄️  向量库: {vector_store_config.mode} ({vector_store_config.path if vector_store_config.mode != 'remote' else vector_store_config.url})")
+    print(f"\n🗄️  向量库: {vector_store_config.engine} @ {vector_store_config.host}:{vector_store_config.port} / {vector_store_config.collection}")
     print(f"\n🔒 安全护轨: {'已启用' if safety_config.enable_input_filter else '已禁用'}")
     print(f"\n📊 可观测性: {'已启用' if logging_config.enable_metrics else '已禁用'}")
     print(f"\n🌐 服务地址: http://{server_config.host}:{server_config.port}")

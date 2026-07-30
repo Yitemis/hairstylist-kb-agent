@@ -14,10 +14,32 @@ fastapi>=0.104.0
 uvicorn>=0.24.0
 python-multipart>=0.0.6
 
-# --- 向量库（本地模式，零部署依赖） ---
-# Qdrant 纯 Python 本地模式：数据存 SQLite 文件
-# 生产环境可切换到独立部署的 Qdrant / Milvus
+# --- 向量库（生产版，独立部署 Milvus） ---
+# 生产环境向量检索引擎，支持大规模向量存储与 ANN 检索
 pymilvus>=2.3.0
+
+# --- LLM / Embedding / Rerank 客户端 ---
+# OpenAI 兼容客户端：Embedding、Chat、VLM 调用
+openai>=1.10.0
+# 异步 HTTP 客户端：Rerank API 及远程模型调用
+httpx>=0.26.0
+# 同步 HTTP：文件下载等
+requests>=2.31.0
+
+# --- 文档解析（多格式知识入库） ---
+python-docx>=1.1.0      # .docx 解析
+openpyxl>=3.1.0         # .xlsx 解析
+PyMuPDF>=1.23.0         # PDF 解析（fitz）
+pypdf>=4.0.0            # PDF 文本抽取
+markdown>=3.5.0         # Markdown 解析
+Pillow>=10.0.0          # 图片处理（VLM 图像解析）
+chardet>=5.2.0          # 文本编码检测
+json-repair>=0.25.0     # 修复 LLM 输出的非法 JSON
+
+# --- 检索：分词与关键词召回 ---
+jieba>=0.42.1           # 中文分词
+rank-bm25>=0.2.2        # BM25 关键词检索
+tiktoken>=0.6.0         # Token 计数与切分
 
 # --- 配置管理 ---
 python-dotenv>=1.0.0

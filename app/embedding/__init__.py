@@ -2,6 +2,9 @@
 """自定义 Embedding 适配器。"""
 from .ark_vision_embedding import ArkVisionEmbeddingModel
 
+# 全局单例，避免重复初始化
+_embedding_model: ArkVisionEmbeddingModel | None = None
+
 
 def build_embedding_model() -> ArkVisionEmbeddingModel:
     """基于配置构建火山方舟 vision embedding 模型实例。
@@ -11,7 +14,7 @@ def build_embedding_model() -> ArkVisionEmbeddingModel:
     """
     from agentscope.credential import OpenAICredential
 
-    from ..config import embedding_config
+    from ..core.config import embedding_config
 
     credential = OpenAICredential(
         api_key=embedding_config.api_key,

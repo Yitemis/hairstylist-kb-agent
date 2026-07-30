@@ -96,30 +96,26 @@ registry = ToolRegistry()
     ),
 )
 def search_hair_knowledge(query: str) -> str:
-    """检索美发专业知识库（Self-RAG 自主优化查询）。
+    """检索美发专业知识库（混合检索 + 父子分块 + Rerank + Context 工程）。
 
     Args:
         query: 要检索的问题或关键词。
 
     Returns:
-        检索到的相关知识内容，用于构建 Agent 回答上下文。
+        带溯源的知识库上下文，用于构建 Agent 回答。
     """
     import asyncio
 
-    # 同步包装异步检索逻辑
     async def _search():
-        from app.rag.engine import self_rag_retrieve
+        from rag.context import build_context
+        from rag.searcher import search
 
-        result = await self_rag_retrieve(query, tenant_id="default", top_k=3)
+        result = await search(query, tenant_id="default", top_k=3, enable_rerank=True)
         if not result.hits:
             return "知识库中暂无相关内容。"
+        return build_context(result.hits)
 
-        context_parts = []
-        for hit in result.hits:
-            context_parts.append(f"【来源：{hit.source}】\n{hit.content}")
-        return "\n\n".join(context_parts)
-
-    # 获取或创建事件循环（兼容同步调用
+    # 兼容同步 / 异步调用环境
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -127,10 +123,10 @@ def search_hair_knowledge(query: str) -> str:
         asyncio.set_event_loop(loop)
 
     if loop.is_running():
-        # 已有运行循环时，同步阻塞调用
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as pool:
-            future = pool.submit(lambda: loop.run_until_complete(_search()))
+            future = pool.submit(lambda: asyncio.run(_search()))
             return future.result()
     else:
         return loop.run_until_complete(_search())
