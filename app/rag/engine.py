@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """RAG 引擎：多租户隔离 + Self-RAG 两阶段检索。
 
 核心能力：
@@ -214,24 +214,57 @@ async def retrieve(
     query_resp = await embed_model([TextBlock(text=query)])
     query_vector = query_resp.embedding[0]
 
-    filter_conditions = {
-        "must": [{"key": "tenant_id", "match": {"value": tenant_id}}],
-    }
-    if category_filter:
-        filter_conditions["should"] = [
-            {"key": "category", "match": {"value": c}} for c in category_filter
-        ]
-
+    engine_type = vector_store_config.engine
     vs = await _get_vector_store()
+
+    # 不同向量库的 filter 格式不同
+    if engine_type == "qdrant-local":
+        # Qdrant 用 qdrant_client.models.Filter
+        from qdrant_client import models as qdrant_models
+        must_conditions = [
+            qdrant_models.FieldCondition(
+                key="tenant_id",
+                match=qdrant_models.MatchValue(value=tenant_id),
+            )
+        ]
+        if category_filter:
+            must_conditions.append(
+                qdrant_models.FieldCondition(
+                    key="category",
+                    match=qdrant_models.MatchAny(any=category_filter),
+                )
+            )
+        filter_conditions = qdrant_models.Filter(must=must_conditions)
+    elif engine_type == "milvus":
+        # Milvus Lite 用表达式字符串（避免触发服务模式）
+        filter_expr = f'tenant_id == "{tenant_id}"'
+        if category_filter:
+            cats = '", "'.join(category_filter)
+            filter_expr += f' AND category IN ["{cats}"]'
+        filter_conditions = filter_expr
+    else:
+        # 通用 fallback（不强制过滤）
+        filter_conditions = None
+
     async with vs:
-        results = await vs._client.search(
-            collection_name=vector_store_config.collection,
-            query_vector=query_vector,
-            limit=fetch_k,
-            with_payload=True,
-            with_vectors=False,
-            filter=filter_conditions,
-        )
+        if engine_type == "qdrant-local":
+            results = await vs._client.search(
+                collection_name=vector_store_config.collection,
+                query_vector=query_vector,
+                limit=fetch_k,
+                with_payload=True,
+                with_vectors=False,
+                query_filter=filter_conditions,
+            )
+        else:  # milvus
+            results = await vs._client.search(
+                collection_name=vector_store_config.collection,
+                query_vector=query_vector,
+                limit=fetch_k,
+                with_payload=True,
+                with_vectors=False,
+                filter=filter_conditions,
+            )
 
     child_hits_count = len(results)
     logger.info("向量召回: %d 子块命中 (tenant=%s)", child_hits_count, tenant_id)
@@ -256,8 +289,23 @@ async def retrieve(
     rerank_applied = False
 
     if enable_rerank and len(parent_hits) > 1:
-        # TODO: 接入真实 Rerank 模型
-        rerank_applied = False
+        try:
+            from app.embedding import build_rerank_model
+            from agentscope.message import TextBlock
+
+            rerank_model = build_rerank_model()
+            # 构造 query + doc 对，rerank 模型打分
+            pairs = [
+                [query, hit.content[:500]] for hit in parent_hits
+            ]
+            scores_resp = await rerank_model(pairs)
+            for hit, score in zip(parent_hits, scores_resp.scores):
+                hit.score = float(score)
+            parent_hits.sort(key=lambda h: h.score, reverse=True)
+            rerank_applied = True
+            logger.info("Rerank 完成: %d 文档", len(parent_hits))
+        except Exception as e:
+            logger.warning("Rerank 失败，回退到向量分数: %s", e)
 
     final_hits = parent_hits[:top_k]
     elapsed_ms = int((time.time() - start_time) * 1000)
@@ -336,7 +384,11 @@ async def self_rag_retrieve(
 
 async def get_knowledge_stats(tenant_id: str | None = None) -> dict[str, Any]:
     """获取知识库统计信息（监控面板用）。"""
-    vs = await _get_vector_store()
-    async with vs:
-        count = await vs._client.count(collection_name=vector_store_config.collection)
-    return {"total_chunks": count.count, "tenant_filtered": tenant_id}
+    try:
+        vs = await _get_vector_store()
+        async with vs:
+            count = await vs._client.count(collection_name=vector_store_config.collection)
+        return {"total_chunks": count.count, "tenant_filtered": tenant_id}
+    except Exception as e:
+        logger.warning("get_knowledge_stats 失败: %s", e)
+        return {"total_chunks": 0, "tenant_filtered": tenant_id, "error": str(e)}

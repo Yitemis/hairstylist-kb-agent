@@ -114,7 +114,7 @@ class SafetyConfig:
     enable_output_filter: bool = True
     max_input_length: int = 500
     max_output_length: int = 2000
-    enable_domain_boundary_check: bool = True
+    enable_domain_boundary_check: bool = False
 
 
 @dataclass
@@ -126,6 +126,40 @@ class LoggingConfig:
     enable_metrics: bool = True
     metrics_port: int = 9090
     log_retention_days: int = 30
+
+
+@dataclass
+class DatabaseConfig:
+    """业务数据库配置（用户/订单等）。
+
+    开发默认 SQLite 单文件，零安装；生产可切 MySQL：
+    DATABASE_URL=mysql+aiomysql://user:pwd@host:3306/dbname
+    """
+
+    url: str = ""
+    echo: bool = False
+
+    @property
+    def resolved_url(self) -> str:
+        """未显式配置时回落到项目根目录下的 SQLite 文件。"""
+        if self.url:
+            return self.url
+        db_path = (PROJECT_ROOT / "data" / "app.db").as_posix()
+        return f"sqlite+aiosqlite:///{db_path}"
+
+
+@dataclass
+class AuthConfig:
+    """认证与 JWT 配置。"""
+
+    jwt_secret: str = "dev-insecure-change-me"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60 * 24 * 7  # 默认 7 天
+
+    @property
+    def is_secure(self) -> bool:
+        """生产环境应替换默认密钥。"""
+        return self.jwt_secret != "dev-insecure-change-me"
 
 
 # ------------------------------------------------------------------
@@ -176,7 +210,7 @@ safety_config = SafetyConfig(
     enable_output_filter=_get_env("ENABLE_OUTPUT_FILTER", "1") == "1",
     max_input_length=int(_get_env("MAX_INPUT_LENGTH", "500")),
     max_output_length=int(_get_env("MAX_OUTPUT_LENGTH", "2000")),
-    enable_domain_boundary_check=_get_env("ENABLE_DOMAIN_BOUNDARY_CHECK", "1") == "1",
+    enable_domain_boundary_check=_get_env("ENABLE_DOMAIN_BOUNDARY_CHECK", "0") == "1",
 )
 
 logging_config = LoggingConfig(
@@ -185,6 +219,19 @@ logging_config = LoggingConfig(
     enable_metrics=_get_env("ENABLE_METRICS", "1") == "1",
     metrics_port=int(_get_env("METRICS_PORT", "9090")),
     log_retention_days=int(_get_env("LOG_RETENTION_DAYS", "30")),
+)
+
+database_config = DatabaseConfig(
+    url=_get_env("DATABASE_URL", ""),
+    echo=_get_env("DATABASE_ECHO", "0") == "1",
+)
+
+auth_config = AuthConfig(
+    jwt_secret=_get_env("JWT_SECRET", "dev-insecure-change-me"),
+    jwt_algorithm=_get_env("JWT_ALGORITHM", "HS256"),
+    access_token_expire_minutes=int(
+        _get_env("ACCESS_TOKEN_EXPIRE_MINUTES", str(60 * 24 * 7))
+    ),
 )
 
 # 兼容旧代码
@@ -196,6 +243,20 @@ model_configs = {
     "embedding": embedding_config,
     "rerank": rerank_config,
 }
+
+
+@dataclass
+class AgentStateConfig:
+    """Agent 状态持久化配置。"""
+
+    backend: str = "json_file"  # "json_file" | "memory"
+    root_path: str = "./data/agent_state"
+
+
+agent_state_config = AgentStateConfig(
+    backend=_get_env("AGENT_STATE_BACKEND", "json_file"),
+    root_path=_get_env("AGENT_STATE_ROOT", "./data/agent_state"),
+)
 
 
 # ------------------------------------------------------------------

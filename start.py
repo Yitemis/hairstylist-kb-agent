@@ -59,8 +59,8 @@ def start_server():
     print('启动美发知识助手 API 服务...')
     print('=' * 60)
     print('')
-    print('🌐 API 地址: http://localhost:7860')
-    print('📖 API 文档: http://localhost:7860/docs')
+    print('API 地址: http://localhost:8000')
+    print('API 文档: http://localhost:8000/docs')
     print('')
     subprocess.run(
         [sys.executable, '-m', 'uvicorn', 'app.server.api:app', '--reload'],

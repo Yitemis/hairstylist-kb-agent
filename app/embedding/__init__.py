@@ -4,6 +4,7 @@ from .ark_vision_embedding import ArkVisionEmbeddingModel
 
 # 全局单例，避免重复初始化
 _embedding_model: ArkVisionEmbeddingModel | None = None
+_rerank_model = None
 
 
 def build_embedding_model() -> ArkVisionEmbeddingModel:
@@ -27,4 +28,27 @@ def build_embedding_model() -> ArkVisionEmbeddingModel:
     )
 
 
-__all__ = ["ArkVisionEmbeddingModel", "build_embedding_model"]
+def build_rerank_model():
+    """构建 Rerank 模型（基于火山方舟 Rerank API）。
+
+    火山方舟提供 gte-rerank 等模型，OpenAI 兼容协议：
+        POST {base_url}/rerank
+        Body: {"model": "gte-rerank", "input": {"query": ..., "documents": [...]}}
+    """
+    global _rerank_model
+    if _rerank_model is None:
+        from agentscope.model import DashScopeRerankModel
+        from ..core.config import rerank_config
+        if not rerank_config.is_valid:
+            return None
+        from agentscope.credential import DashScopeCredential
+
+        credential = DashScopeCredential(api_key=rerank_config.api_key)
+        _rerank_model = DashScopeRerankModel(
+            credential=credential,
+            model=rerank_config.model,
+        )
+    return _rerank_model
+
+
+__all__ = ["ArkVisionEmbeddingModel", "build_embedding_model", "build_rerank_model"]
