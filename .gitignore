@@ -85,7 +85,12 @@ frontend/yarn.lock
 # 文档中的临时文件
 # ============================================
 docs/TEMP_*
+docs/LONG_TERM_MEMORY_AI_AGENT.md  # 个人 AI 学习笔记（不入仓）
 =2.0.0
+
+# 开发启动脚本
+data/*.sh
+data/start_milvus_wsl.sh
 
 # IDE / OS
 .DS_Store
