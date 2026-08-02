@@ -1,28 +1,94 @@
-# 环境与密钥
-.env
-.venv/
-venv/
-
+# ============================================
 # Python
+# ============================================
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
 *.egg-info/
+.eggs/
+*.egg
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# 测试覆盖率
+.coverage
 .pytest_cache/
+.tox/
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
 # IDE
-.idea/
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
 
-# 数据与日志
-*.log
+# ============================================
+# 环境变量 / 密钥
+# ============================================
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# ============================================
+# 数据 / 缓存 / 运行时产物
+# ============================================
+data/app.db
+data/app.db-journal
+data/app.db-wal
+data/app.db-shm
+data/agent_state/
+data/knowledge/
+data/qdrant/
+data/qdrant-bin/
+data/milvus/
+data/downloads/
+*.sqlite
+*.sqlite3
+
+# 用户上传 / 临时文件
+uploads/
+tmp/
 temp/
+*.log
+*.pid
 
-# 忽略运行时数据，但保留示例知识文档（用于演示 RAG）
-data/*
-!data/knowledge/
-data/knowledge/*
-!data/knowledge/*.md
+# ============================================
+# 前端
+# ============================================
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/build/
+frontend/.cache/
+frontend/coverage/
+frontend/.env
+frontend/.env.local
+frontend/package-lock.json
+frontend/yarn.lock
 
-# 临时/辅助文件
-_chat_*.txt
-_test_*.py
+# ============================================
+# 文档中的临时文件
+# ============================================
+docs/TEMP_*
+=2.0.0
+
+# IDE / OS
+.DS_Store
+*.swp
+*.swo
+*~
