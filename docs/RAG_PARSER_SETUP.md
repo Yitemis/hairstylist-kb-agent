@@ -112,3 +112,31 @@ curl -X POST "http://localhost:8000/api/rag/upload?document_id=test" \
 
 P1 改进：图片 VLM 描述（VLM 选 open source LLaVA 或 GPT-4V）
 P2 改进：MinerU 表格抽取结果作为独立 metadata
+
+
+## PDF_PARSER 环境变量
+
+3 种模式（借鉴九阳 POC + AgentScope 设计）：
+
+| 模式 | 行为 | 适用场景 |
+|------|------|----------|
+| **auto** (默认) | MinerU 优先，失败自动降级 PyMuPDF | 开发 + 测试 |
+| **mineru** | 强制 MinerU，失败报错 | 生产（保证识别率） |
+| **fast** / **pymupdf** | 只用 PyMuPDF（0 依赖）| 纯文本快速场景 |
+
+```bash
+# 默认（auto）
+unset PDF_PARSER
+
+# 生产（强制 MinerU）
+export PDF_PARSER=mineru
+
+# 纯文本快速（只用 PyMuPDF）
+export PDF_PARSER=fast
+```
+
+按九阳 POC 实战，所有 PDF（标准/横版/扫描）都用 MinerU 路径最稳：
+- MinerU 不可用 → auto 模式自动降级 PyMuPDF
+- MinerU 不可用但设了 mineru 模式 → 报错（说明 MinerU 服务挂了）
+
+借鉴来源：仅借鉴九阳 POC 的 MinerU 选型 + ekbs 的降级模式思路。

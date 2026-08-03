@@ -52,11 +52,30 @@ class PdfParser:
     ) -> List[ParentChunk]:
         binary = self._read_file()
 
-        # 策略：尝试 MinerU，失败回退到 PyMuPDF
-        pages_text = self._extract_with_mineru(binary)
-        if not pages_text:
-            logger.info("MinerU 不可用或失败，降级到 PyMuPDF")
+        # 策略（借鉴九阳 POC）：所有 PDF 默认走 MinerU（layout 分析 + Markdown 输出）
+        # 失败/不可用时降级到 PyMuPDF
+        # 环境变量 PDF_PARSER：
+        #   auto (默认)：MinerU 优先，失败降级 PyMuPDF
+        #   mineru：强制要求 MinerU，失败报错（生产用）
+        #   fast / pymupdf：只用 PyMuPDF（快，0 依赖，仅适合纯文本）
+        parser_choice = os.environ.get("PDF_PARSER", "auto").lower()
+        pages_text: List[str] = []
+        if parser_choice in ("mineru", "auto"):
+            pages_text = self._extract_with_mineru(binary)
+            if not pages_text and parser_choice == "mineru":
+                logger.warning("MinerU 不可用，强制要求 MinerU 模式（不降级）")
+            elif not pages_text and parser_choice == "auto":
+                logger.info("MinerU 不可用，降级到 PyMuPDF")
+                pages_text = self._extract_with_pymupdf(binary)
+        elif parser_choice in ("pymupdf", "fast"):
             pages_text = self._extract_with_pymupdf(binary)
+        else:
+            logger.warning(f"未知 PDF_PARSER={parser_choice}，用 MinerU")
+            pages_text = self._extract_with_mineru(binary) or self._extract_with_pymupdf(binary)
+
+        if not pages_text:
+            logger.error("PDF 解析完全失败（两个引擎都不可用）")
+            return []
 
         full_text = "\n\n".join(pages_text)
         from app.rag.chunkers.smart_chunker import (
