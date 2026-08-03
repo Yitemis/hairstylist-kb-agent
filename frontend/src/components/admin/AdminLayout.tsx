@@ -3,6 +3,15 @@ import { clearAuth, getUser } from '../../utils/auth'
 
 const NAV_ITEMS = [
   {
+    path: '/admin/kb',
+    label: '知识库管理',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M2 3a1 1 0 0 1 1-1h5a3 3 0 0 1 3 3v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zM11 5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1V5z" stroke="currentColor" strokeWidth="1.4"/>
+      </svg>
+    ),
+  },
+  {
     path: '/admin/knowledge',
     label: '知识库问答',
     icon: (

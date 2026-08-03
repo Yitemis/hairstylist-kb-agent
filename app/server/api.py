@@ -331,6 +331,202 @@ async def rag_stats(tenant_id: str | None = None) -> dict:
     return await get_knowledge_stats(tenant_id)
 
 
+@app.get('/api/rag/chunks', summary='列出已索引的 chunks')
+async def rag_list_chunks(
+    document_id: str | None = None,
+    tenant_id: str | None = None,
+    limit: int = 10,
+    offset: int = 0,
+) -> dict:
+    """查看向量库里的 chunks（用于调试切分效果）。
+
+    - document_id: 按文档 ID 过滤（可选）
+    - tenant_id: 按租户过滤（可选）
+    - limit: 返回前 N 条（默认 10）
+    - offset: 跳过前 N 条（用于分页）
+
+    返回每个 chunk 的完整 payload（含 content）和元数据。
+    """
+    from app.rag.engine import _get_qdrant_client
+    from app.core.config import vector_store_config
+    from qdrant_client import models as qdrant_models
+
+    if vector_store_config.engine != "qdrant-local":
+        raise HTTPException(status_code=400, detail="仅 qdrant-local 模式支持此端点")
+
+    client = await _get_qdrant_client()
+    must_conditions = []
+    if document_id is not None:
+        must_conditions.append(
+            qdrant_models.FieldCondition(
+                key="document_id", match=qdrant_models.MatchValue(value=document_id)
+            )
+        )
+    if tenant_id is not None:
+        must_conditions.append(
+            qdrant_models.FieldCondition(
+                key="tenant_id", match=qdrant_models.MatchValue(value=tenant_id)
+            )
+        )
+    query_filter = qdrant_models.Filter(must=must_conditions) if must_conditions else None
+
+    results = client.scroll(
+        collection_name=vector_store_config.collection,
+        limit=limit,
+        offset=offset,
+        with_payload=True,
+        with_vectors=False,
+        scroll_filter=query_filter,
+    )
+    points = results[0]
+
+    return {
+        "total": len(points),
+        "offset": offset,
+        "limit": limit,
+        "chunks": [
+            {
+                "id": p.id,
+                "filename": (p.payload or {}).get("filename"),
+                "document_id": (p.payload or {}).get("document_id"),
+                "tenant_id": (p.payload or {}).get("tenant_id"),
+                "category": (p.payload or {}).get("category"),
+                "content": (p.payload or {}).get("content", ""),
+                "content_length": len((p.payload or {}).get("content", "")),
+            }
+            for p in points
+        ],
+    }
+
+
+@app.get('/api/rag/test-recall', summary='测试召回命中（按相关度排序）')
+async def rag_test_recall(
+    query: str,
+    top_k: int = 10,
+    filename: str | None = None,
+    tenant_id: str | None = None,
+) -> dict:
+    """测试召回命中：问一个问题，返回按相关度排序的切片。
+
+    借鉴 ekbs-ai-service 的 `/txt/test` 端点思路：
+    - 用户问问题
+    - 走完整 RAG 流程（embed + 向量召回 + 多租户 filter）
+    - 返回按 score 排序的切片
+
+    Args:
+        query: 用户问题
+        top_k: 返回前 N 条（默认 10）
+        filename: 按文件名过滤（可选）
+        tenant_id: 按租户过滤（可选）
+
+    Returns:
+        {
+          "query": "...",
+          "elapsed_ms": 123,
+          "hits": [{ "rank": 1, "score": 0.95, "content": "...", "filename": "...", "document_id": "..." }, ...]
+        }
+    """
+    from app.rag.engine import retrieve, self_rag_retrieve
+    from app.core.config import vector_store_config
+
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="query 必填")
+
+    # 选择 self_rag_retrieve（带反思） 或 retrieve
+    if filename or tenant_id:
+        # 带过滤条件用 retrieve
+        result = await retrieve(
+            query=query,
+            tenant_id=tenant_id or "default",
+            top_k=top_k,
+            enable_rerank=False,  # 简化：直接返回向量分数
+        )
+    else:
+        result = await retrieve(
+            query=query,
+            tenant_id="default",
+            top_k=top_k,
+            enable_rerank=False,
+        )
+
+    # 按 score 排序
+    sorted_hits = sorted(result.hits, key=lambda h: h.score, reverse=True)[:top_k]
+
+    # 如果指定 filename 过滤
+    if filename:
+        sorted_hits = [h for h in sorted_hits if filename in (h.source or "")]
+
+    return {
+        "query": query,
+        "elapsed_ms": result.retrieval_time_ms,
+        "child_hits_count": result.child_hits_count,
+        "total_candidates": len(result.hits),
+        "hits": [
+            {
+                "rank": i + 1,
+                "score": round(hit.score, 4),
+                "content": hit.content,
+                "filename": hit.source,
+                "tenant_id": hit.tenant_id,
+                "parent_id": hit.parent_id,
+            }
+            for i, hit in enumerate(sorted_hits)
+        ],
+    }
+
+
+@app.get('/api/rag/documents', summary='列出已索引的文档')
+async def rag_list_documents(tenant_id: str | None = None) -> dict:
+    """列出所有已索引的文档（按 document_id 分组，含 chunk 数）。"""
+    from app.rag.engine import _get_qdrant_client
+    from app.core.config import vector_store_config
+    from qdrant_client import models as qdrant_models
+
+    if vector_store_config.engine != "qdrant-local":
+        raise HTTPException(status_code=400, detail="仅 qdrant-local 模式支持此端点")
+
+    client = await _get_qdrant_client()
+    must_conditions = []
+    if tenant_id is not None:
+        must_conditions.append(
+            qdrant_models.FieldCondition(
+                key="tenant_id", match=qdrant_models.MatchValue(value=tenant_id)
+            )
+        )
+    query_filter = qdrant_models.Filter(must=must_conditions) if must_conditions else None
+
+    # 拉所有 chunk（不取向量）
+    results = client.scroll(
+        collection_name=vector_store_config.collection,
+        limit=10000,
+        with_payload=True,
+        with_vectors=False,
+        scroll_filter=query_filter,
+    )
+    points = results[0]
+
+    # 按 document_id 聚合
+    doc_map: dict[str, dict] = {}
+    for p in points:
+        payload = p.payload or {}
+        doc_id = payload.get("document_id") or f"orphan_{p.id}"
+        if doc_id not in doc_map:
+            doc_map[doc_id] = {
+                "document_id": doc_id,
+                "filename": payload.get("filename"),
+                "category": payload.get("category"),
+                "tenant_id": payload.get("tenant_id"),
+                "chunk_count": 0,
+                "first_indexed_at": None,
+            }
+        doc_map[doc_id]["chunk_count"] += 1
+
+    return {
+        "total": len(doc_map),
+        "documents": list(doc_map.values()),
+    }
+
+
 @app.post("/api/chat", summary="对话接口")
 async def chat(body: dict) -> dict:
     """对话接口（前后端都用这个）。

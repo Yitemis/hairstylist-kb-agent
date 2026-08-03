@@ -12,6 +12,7 @@ import CustomerOrderDetailPage from './pages/customer/OrderDetailPage'
 // Admin pages
 import AdminLoginPage from './pages/admin/AdminLoginPage'
 import KnowledgePage from './pages/admin/KnowledgePage'
+import KnowledgeBasePage from './pages/admin/KnowledgeBasePage'
 import OrderManagePage from './pages/admin/OrderManagePage'
 import BranchManagePage from './pages/admin/BranchManagePage'
 import StylistManagePage from './pages/admin/StylistManagePage'
@@ -155,6 +156,7 @@ export default function App() {
         {/* Admin routes */}
         <Route path="/admin/login"      element={<AdminLoginPage />} />
         <Route path="/admin/knowledge"  element={<AdminGuard><KnowledgePage /></AdminGuard>} />
+        <Route path="/admin/kb"         element={<AdminGuard><KnowledgeBasePage /></AdminGuard>} />
         <Route path="/admin/orders"     element={<AdminGuard><OrderManagePage /></AdminGuard>} />
         <Route path="/admin/branches"   element={<AdminGuard><BranchManagePage /></AdminGuard>} />
         <Route path="/admin/stylists"   element={<AdminGuard><StylistManagePage /></AdminGuard>} />
