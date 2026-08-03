@@ -83,6 +83,7 @@ class VectorStoreConfig:
     port: int = 19530
     uri: str = ""
     api_key: str = ""
+    path: str = "./data/qdrant"  # qdrant-local 数据目录
     collection: str = "hairstylist_kb"
     metric_type: str = "COSINE"
     dims: int = 2048
@@ -190,6 +191,7 @@ vector_store_config = VectorStoreConfig(
     port=int(_get_env("VECTOR_STORE_PORT", "19530")),
     uri=_get_env("VECTOR_STORE_URI", ""),
     api_key=_get_env("VECTOR_STORE_API_KEY", ""),
+    path=_get_env("VECTOR_STORE_PATH", "./data/qdrant"),
     collection=_get_env("VECTOR_COLLECTION", "hairstylist_kb"),
     metric_type=_get_env("VECTOR_METRIC_TYPE", "COSINE"),
     dims=int(_get_env("VECTOR_DIMS", "2048")),

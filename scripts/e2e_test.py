@@ -15,12 +15,23 @@ class C:
     RESET = "\033[0m"
 
 
+# 强制 stdout 用 utf-8（Windows cmd 默认 gbk）
+import sys
+import io
+if sys.platform == "win32":
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+
 def check(name: str, cond: bool, detail: str = "") -> None:
-    icon = "✅" if cond else "❌"
+    icon = "[OK]" if cond else "[FAIL]"
     color = C.GREEN if cond else C.RED
     msg = f"  {icon} {name}"
     if detail:
-        msg += f" — {detail[:100]}"
+        msg += f" - {detail[:100]}"
     print(f"{color}{msg}{C.RESET}")
     if not cond:
         sys.exit(1)

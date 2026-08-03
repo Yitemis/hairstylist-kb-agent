@@ -50,7 +50,31 @@ class RetrievalResult:
     tenant_id: str
 
 
+def _convert_search_result(r) -> dict:
+    """把 AgentScope VectorSearchResult 转成 dict 兼容旧代码。
+
+    AgentScope 的 VectorSearchResult 字段：
+    - score: float
+    - chunk.content.text: str
+    - chunk.source: str
+    - chunk.metadata: dict
+    """
+    try:
+        return {
+            "score": r.score,
+            "payload": r.chunk.metadata or {},
+            # 提取父块 ID 用于聚合
+            "parent_id": (r.chunk.metadata or {}).get(PARENT_ID_KEY, ""),
+            # 父块内容（如有）
+            "content": (r.chunk.metadata or {}).get(PARENT_CONTENT_KEY, ""),
+            "filename": (r.chunk.metadata or {}).get("filename", "unknown"),
+        }
+    except Exception:
+        return {"score": 0.0, "payload": {}, "parent_id": "", "content": "", "filename": "unknown"}
+
+
 _vector_store = None
+_qdrant_direct_client = None  # qdrant-local 直接 client（避开 AgentScope wrapper 的 path bug）
 _chunker = ParentChildChunker()
 
 
@@ -61,58 +85,50 @@ async def _get_vector_store():
     - milvus（默认，Docker 启动，带可视化面板）
     - qdrant-local（本地文件快速开发）
     """
-    global _vector_store
+    global _vector_store, _qdrant_direct_client
     if _vector_store is None:
         engine = vector_store_config.engine
 
         if engine == "milvus":
             from agentscope.rag import MilvusLiteStore
-
             uri = vector_store_config.uri or f"http://{vector_store_config.host}:{vector_store_config.port}"
             logger.info("初始化 Milvus 向量库: %s", uri)
             _vector_store = MilvusLiteStore(uri=uri)
-
         else:
-            
+            # qdrant-local：直接用 QdrantClient 连本地文件，避开 AgentScope wrapper bug
+            from qdrant_client import AsyncQdrantClient
+            from agentscope.rag import QdrantStore
             _vector_store = QdrantStore(location=vector_store_config.path)
             logger.info("初始化 Qdrant 本地向量库: %s", vector_store_config.path)
-
-        # 首次初始化时，自动建集合
-        async with _vector_store:
-            client = _vector_store._client
-            exists = False
-
+            # 直接初始化一个 AsyncQdrantClient
+            _qdrant_direct_client = AsyncQdrantClient(
+                path=vector_store_config.path,
+            )
+            # 检查/创建集合
             try:
-                if engine == "milvus":
-                    exists = client.has_collection(vector_store_config.collection)
-                else:
-                    client.get_collection(collection_name=vector_store_config.collection)
-                    exists = True
+                await _qdrant_direct_client.get_collection(vector_store_config.collection)
+                logger.info("Qdrant 集合已存在: %s", vector_store_config.collection)
             except Exception:
-                exists = False
-
-            if not exists:
-                dims = vector_store_config.dims
-                logger.info("创建向量集合: %s (维度: %d)", vector_store_config.collection, dims)
-
-                if engine == "milvus":
-                    client.create_collection(
-                        collection_name=vector_store_config.collection,
-                        dimension=dims,
-                    )
-                else:
-                    from qdrant_client import models as qdrant_models
-                    client.create_collection(
-                        collection_name=vector_store_config.collection,
-                        vectors_config=qdrant_models.VectorParams(
-                            size=dims,
-                            distance=qdrant_models.Distance.COSINE,
-                        ),
-                    )
-            else:
-                logger.info("向量集合已存在: %s", vector_store_config.collection)
+                from qdrant_client import models as qdrant_models
+                await _qdrant_direct_client.create_collection(
+                    collection_name=vector_store_config.collection,
+                    vectors_config=qdrant_models.VectorParams(
+                        size=vector_store_config.dims,
+                        distance=qdrant_models.Distance.COSINE,
+                    ),
+                )
+                logger.info("Qdrant 创建集合: %s (维度: %d)",
+                            vector_store_config.collection, vector_store_config.dims)
 
     return _vector_store
+
+
+async def _get_qdrant_client():
+    """获取 Qdrant 直连 client（qdrant-local 模式专用）。"""
+    global _qdrant_direct_client
+    if _qdrant_direct_client is None:
+        await _get_vector_store()  # 触发初始化
+    return _qdrant_direct_client
 
 async def index_document(
     document_id: str,
@@ -155,7 +171,7 @@ async def index_document(
         return {"status": "empty", "chunks": 0, "time_ms": 0}
 
     embed_resp = await embed_model([TextBlock(text=t) for t in texts])
-    vectors = embed_resp.embedding
+    vectors = embed_resp.embeddings  # AgentScope 2.0 字段名是 embeddings（复数）
 
     points = []
     for idx, chunk in enumerate(chunks):
@@ -175,11 +191,29 @@ async def index_document(
         })
 
     vs = await _get_vector_store()
-    async with vs:
-        await vs._client.upsert(
+    if vector_store_config.engine == "qdrant-local":
+        # qdrant-local 用直连 client（避开 AgentScope wrapper 的 path bug）
+        from qdrant_client import models as qdrant_models
+        client = await _get_qdrant_client()
+        # 转换 dict 为 PointStruct
+        qdrant_points = [
+            qdrant_models.PointStruct(
+                id=p["id"],
+                vector=p["vector"],
+                payload=p["payload"],
+            )
+            for p in points
+        ]
+        await client.upsert(
             collection_name=vector_store_config.collection,
-            points=points,
+            points=qdrant_points,
         )
+    else:
+        async with vs:
+            await vs._client.upsert(  # milvus
+                collection_name=vector_store_config.collection,
+                points=points,
+            )
 
     elapsed_ms = int((time.time() - start_time) * 1000)
     logger.info("文档 %s 索引完成: %d 子块, %dms", document_id, len(points), elapsed_ms)
@@ -212,7 +246,7 @@ async def retrieve(
 
     embed_model = build_embedding_model()
     query_resp = await embed_model([TextBlock(text=query)])
-    query_vector = query_resp.embedding[0]
+    query_vector = query_resp.embeddings[0]  # AgentScope 2.0 字段名是 embeddings（复数）
 
     engine_type = vector_store_config.engine
     vs = await _get_vector_store()
@@ -234,53 +268,76 @@ async def retrieve(
                     match=qdrant_models.MatchAny(any=category_filter),
                 )
             )
-        filter_conditions = qdrant_models.Filter(must=must_conditions)
+        metadata_filter = qdrant_models.Filter(must=must_conditions)
     elif engine_type == "milvus":
-        # Milvus Lite 用表达式字符串（避免触发服务模式）
+        # Milvus 用 filter 表达式字符串
         filter_expr = f'tenant_id == "{tenant_id}"'
         if category_filter:
             cats = '", "'.join(category_filter)
             filter_expr += f' AND category IN ["{cats}"]'
-        filter_conditions = filter_expr
+        metadata_filter = filter_expr
     else:
-        # 通用 fallback（不强制过滤）
-        filter_conditions = None
+        metadata_filter = None
 
-    async with vs:
-        if engine_type == "qdrant-local":
-            results = await vs._client.search(
-                collection_name=vector_store_config.collection,
+    # AgentScope 2.0 的 QdrantStore.search 直接接收 metadata_filter
+    # Qdrant 本地模式：AgentScope wrapper 与 Qdrant 1.x Filter 兼容性问题，直接用底层 client
+    if engine_type == "qdrant-local":
+        # qdrant-local 用直连 client
+        client = await _get_qdrant_client()
+        qdrant_resp = await client.query_points(
+            collection_name=vector_store_config.collection,
+            query=query_vector,
+            limit=fetch_k,
+            with_payload=True,
+            with_vectors=False,
+            query_filter=metadata_filter,
+        )
+        results = qdrant_resp.points  # ScoredPoint 列表
+        # 把 ScoredPoint 转成 dict 兼容
+        results = [
+            {
+                "score": r.score,
+                "payload": r.payload or {},
+                "parent_id": (r.payload or {}).get(PARENT_ID_KEY, ""),
+                "content": (r.payload or {}).get(PARENT_CONTENT_KEY, ""),
+                "filename": (r.payload or {}).get("filename", "unknown"),
+            }
+            for r in results
+        ]
+    else:  # milvus
+        async with vs:
+            raw_results = await vs.search(
+                collection=vector_store_config.collection,
                 query_vector=query_vector,
-                limit=fetch_k,
-                with_payload=True,
-                with_vectors=False,
-                query_filter=filter_conditions,
+                top_k=fetch_k,
+                metadata_filter=metadata_filter,
             )
-        else:  # milvus
-            results = await vs._client.search(
-                collection_name=vector_store_config.collection,
-                query_vector=query_vector,
-                limit=fetch_k,
-                with_payload=True,
-                with_vectors=False,
-                filter=filter_conditions,
-            )
+            results = [_convert_search_result(r) for r in raw_results]
 
     child_hits_count = len(results)
     logger.info("向量召回: %d 子块命中 (tenant=%s)", child_hits_count, tenant_id)
 
     best_by_parent: dict[str, RetrievalHit] = {}
     for hit in results:
-        parent_id = hit.payload.get(PARENT_ID_KEY)
+        # results 在 qdrant-local 模式是 dict（直接构造的）
+        # 在 milvus 模式是 dict（_convert_search_result 转的）
+        # 统一用 .get("payload", {}) 兼容
+        if isinstance(hit, dict):
+            payload = hit.get("payload", {})
+            score = hit.get("score", 0.0)
+        else:
+            payload = getattr(hit, "payload", None) or {}
+            score = getattr(hit, "score", 0.0)
+        parent_id = payload.get(PARENT_ID_KEY)
         if not parent_id:
             continue
 
-        if parent_id not in best_by_parent or hit.score > best_by_parent[parent_id].score:
+        if parent_id not in best_by_parent or score > best_by_parent[parent_id].score:
             best_by_parent[parent_id] = RetrievalHit(
                 parent_id=parent_id,
-                content=hit.payload.get(PARENT_CONTENT_KEY, ""),
-                source=hit.payload.get("filename", "unknown"),
-                score=hit.score,
+                content=payload.get(PARENT_CONTENT_KEY, ""),
+                source=payload.get("filename", "unknown"),
+                score=score,
                 matched_child="",
                 tenant_id=tenant_id,
             )
@@ -385,10 +442,16 @@ async def self_rag_retrieve(
 async def get_knowledge_stats(tenant_id: str | None = None) -> dict[str, Any]:
     """获取知识库统计信息（监控面板用）。"""
     try:
-        vs = await _get_vector_store()
-        async with vs:
-            count = await vs._client.count(collection_name=vector_store_config.collection)
-        return {"total_chunks": count.count, "tenant_filtered": tenant_id}
+        if vector_store_config.engine == "qdrant-local":
+            client = await _get_qdrant_client()
+            count_resp = await client.count(collection_name=vector_store_config.collection)
+            total = count_resp.count
+        else:
+            vs = await _get_vector_store()
+            async with vs:
+                count = await vs._client.count(collection_name=vector_store_config.collection)
+                total = count.count
+        return {"total_chunks": total, "tenant_filtered": tenant_id}
     except Exception as e:
         logger.warning("get_knowledge_stats 失败: %s", e)
         return {"total_chunks": 0, "tenant_filtered": tenant_id, "error": str(e)}
