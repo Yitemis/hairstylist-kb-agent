@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -270,6 +270,58 @@ async def rag_index_document(
     """API 方式索引单个文档。"""
     from app.rag.engine import index_document
     return await index_document(document_id, content, filename, tenant_id, category)
+
+
+@app.post('/api/rag/upload')
+async def rag_upload_document(
+    file: UploadFile,
+    document_id: str = '',
+    tenant_id: str = 'default',
+    category: str = 'general',
+) -> dict:
+    """文件上传 + 自动解析 + 索引（支持 PDF/Word/Excel/Markdown）。"""
+    from app.rag.parsers import get_parser
+    from app.rag.parsers.utils import is_safe_url
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="filename is required")
+
+    # 保存到临时文件，调用解析器
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp:
+        content_bytes = await file.read()
+        tmp.write(content_bytes)
+        tmp_path = tmp.name
+    try:
+        parser = get_parser(tmp_path, file.filename)
+        parents = parser.load(
+            document_id=document_id or file.filename,
+            tenant_id=tenant_id,
+            category=category,
+        )
+        # 把 parent chunks 拼起来索引
+        from app.rag.engine import index_document
+        total_chunks = 0
+        for p in parents:
+            for c in p.child_chunks:
+                await index_document(
+                    document_id=f"{document_id or file.filename}_chunk_{total_chunks}",
+                    content=c.content,
+                    filename=file.filename,
+                    tenant_id=tenant_id,
+                    category=category,
+                )
+                total_chunks += 1
+        return {
+            "status": "ok",
+            "filename": file.filename,
+            "document_id": document_id or file.filename,
+            "tenant_id": tenant_id,
+            "parents": len(parents),
+            "child_chunks_indexed": total_chunks,
+        }
+    finally:
+        os.unlink(tmp_path)
 
 
 @app.get('/api/rag/stats')

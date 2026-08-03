@@ -1,0 +1,178 @@
+# -*- coding: utf-8 -*-
+"""PDF 解析器（PyMuPDF + MinerU 双引擎，借鉴九阳 POC 实战经验）。
+
+借鉴思路：横版 + OCR 兜底（来自九阳 POC 失分最多场景）。
+两个引擎：
+- MinerU (Apache 2.0, 完全开源免费)：专用 layout 分析，多栏/表格/公式 SOTA
+- PyMuPDF (Apache 2.0, 完全开源免费)：标准文本提取，速度极快
+
+回退策略：MinerU 失败 → 自动降级 PyMuPDF
+"""
+from __future__ import annotations
+
+import logging
+import os
+from typing import List
+
+from app.rag.parsers.doc_types import ChildChunk, ElementType, ParentChunk
+from app.rag.parsers.utils import download_file, is_safe_url
+from app.rag.chunkers.smart_chunker import build_child_chunks, build_parent_chunks
+
+logger = logging.getLogger(__name__)
+
+MAX_FILE_SIZE = 200 * 1024 * 1024  # 200MB
+
+
+class PdfParser:
+    """PDF 文档解析器（PyMuPDF + MinerU 双引擎）。
+
+    选择策略：
+    1. 优先 MinerU（识别率高，支持 layout）
+    2. MinerU 不可用/失败 → PyMuPDF
+    3. PyMuPDF 也失败 → OCR 兜底
+    """
+
+    def __init__(self, file_uri: str, filename: str):
+        if is_safe_url(file_uri):
+            self.file_url = file_uri
+            self.file_path = None
+        else:
+            self.file_path = file_uri
+            self.file_url = None
+        self.filename = filename
+
+    def load(
+        self,
+        document_id: str = "",
+        tenant_id: str = "default",
+        category: str = "general",
+        chunk_size: int = 800,
+        chunk_overlap: int = 80,
+        parent_chunk_size: int = 2000,
+    ) -> List[ParentChunk]:
+        binary = self._read_file()
+
+        # 策略：尝试 MinerU，失败回退到 PyMuPDF
+        pages_text = self._extract_with_mineru(binary)
+        if not pages_text:
+            logger.info("MinerU 不可用或失败，降级到 PyMuPDF")
+            pages_text = self._extract_with_pymupdf(binary)
+
+        full_text = "\n\n".join(pages_text)
+        from app.rag.chunkers.smart_chunker import (
+            extract_qa_pairs, merge_qa_into_chunks, split_markdown_by_heading
+        )
+        sections = split_markdown_by_heading(full_text, chunk_size, chunk_overlap)
+        qa_pairs = extract_qa_pairs(full_text)
+        if qa_pairs:
+            sections = merge_qa_into_chunks(sections, qa_pairs)
+
+        child_chunks = build_child_chunks(
+            sections, source_filename=self.filename, document_id=document_id,
+            tenant_id=tenant_id, category=category,
+        )
+        return build_parent_chunks(
+            child_chunks, parent_chunk_size=parent_chunk_size,
+            source_filename=self.filename, document_id=document_id, tenant_id=tenant_id,
+        )
+
+    def _extract_with_mineru(self, binary: bytes) -> List[str]:
+        """用 MinerU 服务解析（推荐）。
+
+        需要部署 MinerU 服务（Apache 2.0 开源免费）：
+            docker pull opendatalab/mineru
+            docker run -d -p 8888:8888 opendatalab/mineru
+
+        配置：环境变量 MINERU_URL（默认 http://localhost:8888）
+        """
+        mineru_url = os.environ.get("MINERU_URL", "http://localhost:8888")
+        try:
+            import requests
+            files = {"file": (self.filename, binary, "application/pdf")}
+            params = {
+                "return_md": "true",
+                "parse_method": "auto",
+            }
+            response = requests.post(
+                f"{mineru_url}/file_parse",
+                files=files,
+                params=params,
+                timeout=120,
+            )
+            if response.status_code == 200:
+                result = response.json()
+                # MinerU 返回格式：{ "results": { "filename": { "md_content": "...", "content_list": [...] } } }
+                results = result.get("results", {})
+                if results:
+                    first_file = list(results.values())[0]
+                    if "md_content" in first_file:
+                        # 直接拿 Markdown 内容
+                        md_text = first_file["md_content"]
+                        return [md_text] if md_text else []
+            logger.warning(f"MinerU 响应异常: {response.status_code}")
+            return []
+        except Exception as e:
+            logger.warning(f"MinerU 调用失败: {e}")
+            return []
+
+    def _extract_with_pymupdf(self, binary: bytes) -> List[str]:
+        """PyMuPDF 提取（降级路径，0 成本，Apache 2.0 开源）。"""
+        try:
+            import fitz
+            import io
+            doc = fitz.open(stream=io.BytesIO(binary))
+            pages_text = []
+            for page in doc:
+                if page.rect.width > page.rect.height:
+                    page.set_rotation(90)
+                text = page.get_text("text")
+                if not text.strip():
+                    text = self._ocr_page_fitz(page)
+                pages_text.append(text)
+            doc.close()
+            return pages_text
+        except ImportError:
+            return self._extract_with_pdfplumber(binary)
+
+    def _extract_with_pdfplumber(self, binary: bytes) -> List[str]:
+        """pdfplumber 提取（最后降级，MIT 开源）。"""
+        try:
+            import pdfplumber
+            import io
+            pages_text = []
+            with pdfplumber.open(io.BytesIO(binary)) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text() or ""
+                    if not text.strip():
+                        text = self._ocr_page_pdfplumber(page)
+                    pages_text.append(text)
+            return pages_text
+        except ImportError:
+            return []
+
+    def _ocr_page_fitz(self, page) -> str:
+        """OCR 兜底（横版扫描件）。"""
+        try:
+            import pytesseract
+            from PIL import Image
+            import io
+            pix = page.get_pixmap(dpi=200)
+            img = Image.open(io.BytesIO(pix.tobytes("png")))
+            return pytesseract.image_to_string(img, lang="chi_sim+eng")
+        except Exception as e:
+            logger.warning(f"OCR 失败: {e}")
+            return ""
+
+    def _ocr_page_pdfplumber(self, page) -> str:
+        try:
+            import pytesseract
+            img = page.to_image(resolution=200).original
+            return pytesseract.image_to_string(img, lang="chi_sim+eng")
+        except Exception:
+            return ""
+
+    def _read_file(self) -> bytes:
+        if self.file_url:
+            return download_file(self.file_url, MAX_FILE_SIZE)
+        with open(self.file_path, "rb") as f:
+            return f.read()
