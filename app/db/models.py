@@ -211,3 +211,77 @@ class UserProfile(Base, TimestampMixin):
     # 来源：对话 ID（用于追溯 + 重复时更新）
     source_message_id: Mapped[int | None] = mapped_column(ForeignKey("chat_messages.id"), nullable=True)
     confidence: Mapped[float] = mapped_column(default=1.0, nullable=False)  # 0~1，LLM 给的置信度
+
+
+# ============================================================
+# RAG 文档与父子分块模型
+# ============================================================
+# 借鉴 ekbs (LONG_TERM_MEMORY_EKBS_AI_SERVICE.md) 的设计：
+# - Document: 文档元信息（不存内容，只存元数据）
+# - ParentChunk: 父块全文（存业务库，可按 parent_id 查询）
+# - 向量库 (Milvus) 只存子块（vector + parent_id 引用 + 元信息）
+# - 检索：向量召回子块 → 按 parent_id 批量查业务库拿父块 → Rerank
+# 优势：父块不重复存在向量库 payload 中，节省空间 + 加快向量检索
+
+
+class Document(Base, TimestampMixin):
+    """知识库文档元信息。
+
+    字段对应 MinerU 解析后的元数据 + 业务元信息。
+    """
+
+    __tablename__ = "documents"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # 业务唯一 ID（前端用，UUID）
+    document_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    # 多租户隔离
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    # 文件信息
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    file_type: Mapped[str] = mapped_column(String(20), default="pdf", nullable=False)
+    # MinerU 解析状态
+    page_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    mineru_status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    # pending / parsing / parsed / indexed / failed
+    # 业务字段
+    category: Mapped[str] = mapped_column(String(50), default="general", nullable=False)
+    # 软删除
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 版本号（incremental update 用）
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    parent_chunks: Mapped[list["ParentChunk"]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
+    )
+
+
+class ParentChunk(Base, TimestampMixin):
+    """父块（完整上下文）。
+
+    借鉴 ekbs 设计：父块只存业务库，不存向量库。
+    子块向量库只存 parent_id 引用 → 检索时批量查父块。
+    """
+
+    __tablename__ = "parent_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # 业务唯一 ID（前端用，UUID，对应子块 parent_id）
+    parent_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    # 多租户隔离
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    # 文档外键
+    document_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("documents.document_id"), index=True, nullable=False
+    )
+    # 父块全文（最大 ~2000 token）
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # token 数量（用于上下文管理）
+    token_num: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 顺序（在文档中的位置，用于排序）
+    position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # 元信息（JSON 字符串）
+    chunk_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    document: Mapped["Document"] = relationship(back_populates="parent_chunks")
