@@ -25,11 +25,16 @@ class Base(DeclarativeBase):
     """所有 ORM 模型的基类。"""
 
 
-# 异步引擎（单例）
+# 异步引擎（单例，但延迟绑定到 env var）
+# 用 NullPool 避免连接绑死到创建时的 event loop（Windows + pytest 兼容）
+from sqlalchemy.pool import NullPool
+from app.core.config import database_config as _db_cfg
+
 engine = create_async_engine(
-    database_config.resolved_url,
-    echo=database_config.echo,
+    _db_cfg.resolved_url,  # 每次访问时重读 env var
+    echo=_db_cfg.echo,
     future=True,
+    poolclass=NullPool,  # 每个 session 新建连接（避免 cross-loop 问题）
 )
 
 # 异步会话工厂

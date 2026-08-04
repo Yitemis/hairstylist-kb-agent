@@ -68,11 +68,19 @@ async def test_v2_index_and_retrieve():
     assert result["parents"] > 0
     assert result["children"] > 0
 
+    print("TEST: Before retrieve, parents in DB:")
+    from sqlalchemy import select, func
+    async with async_session_maker() as s2:
+        cnt = (await s2.execute(select(func.count()).select_from(ParentChunk).where(ParentChunk.tenant_id=="v2_test_tenant"))).scalar()
+        print("  parent_chunks count:", cnt)
     r = await retrieve(
         query="染发前要做什么测试",
         tenant_id="v2_test_tenant",
         top_k=2,
     )
+    print("TEST retrieve result:", len(r.hits), "hits", flush=True)
+    for i, h in enumerate(r.hits, 1):
+        print(f"  Hit{i}: content_len={len(h.content)} content={h.content[:50]!r}", flush=True)
     assert r.tenant_id == "v2_test_tenant"
     assert len(r.hits) > 0, f"应至少 1 个命中，实际 {len(r.hits)}"
     assert all(h.content for h in r.hits), "父块内容应已填充"

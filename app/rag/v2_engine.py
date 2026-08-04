@@ -145,6 +145,22 @@ async def index_document(
                 token_num=p.token_num,
                 position=pos,
             ))
+        await session.flush()
+        # 3. Update tsvector for BM25 (PG full-text search)
+        # 客户端 jieba 分词后存为 tsvector（用空格分隔）
+        # 这样 query 用 jieba 分词后能精确匹配 lexeme
+        from app.rag.hybrid.bm25_search import tokenize_chinese
+        from sqlalchemy import text as _sql_text
+        for pid, p in zip(parent_ids, parent_chunks):
+            # jieba 分词后用空格连接 -> PG 'simple' 切词时按空格分
+            tokenized = tokenize_chinese(p.content).replace(' & ', ' ')
+            await session.execute(
+                _sql_text(
+                    "UPDATE parent_chunks SET content_tsv = to_tsvector('simple', :c) "
+                    "WHERE parent_id = :pid"
+                ),
+                {"c": tokenized or p.content, "pid": pid},
+            )
         await session.commit()
 
     # 2. Build child -> parent mapping
@@ -194,11 +210,15 @@ async def retrieve(
     top_k: int = 5,
     fetch_k: int = 20,
     enable_rerank: bool = True,
+    enable_bm25: bool = True,
     category_filter: Optional[List[str]] = None,
 ) -> RetrievalResult:
-    """Two-stage retrieval (multi-tenant isolated).
+    """Two-stage retrieval with hybrid (vector + BM25) search.
 
-    Stage 1: Milvus vector recall child chunks Top-FetchK
+    Stage 1: Dual recall
+      - Vector: Milvus Top-FetchK
+      - BM25: PG tsvector Top-FetchK (if enable_bm25)
+      - RRF fusion
     Stage 2: aggregate by parent_id -> batch query DB -> Rerank -> Top-K parents
     """
     from app.db.session import async_session_maker
@@ -208,7 +228,10 @@ async def retrieve(
     start_time = time.time()
     ms = await get_milvus_store()
 
+    # 1. Embedding query
     query_vec = (await _get_embedding([query]))[0]
+
+    # 2. Vector recall (Milvus)
     child_hits = ms.search(
         query_vec, tenant_id=tenant_id, top_k=fetch_k,
         category_filter=category_filter,
@@ -216,9 +239,50 @@ async def retrieve(
     child_hits_count = len(child_hits)
     logger.info("Milvus recall: %d children (tenant=%s)", child_hits_count, tenant_id)
 
-    # Aggregate by parent_id (take highest score)
+    # 3. BM25 recall (PG tsvector)
+    bm25_hits = []
+    if enable_bm25:
+        from app.rag.hybrid.bm25_search import bm25_search
+        try:
+            bm25_hits = await bm25_search(
+                async_session_maker, query, tenant_id=tenant_id,
+                top_k=fetch_k, category_filter=category_filter,
+            )
+            logger.info("BM25 recall: %d parents (tenant=%s)", len(bm25_hits), tenant_id)
+        except Exception as e:
+            logger.warning("BM25 search failed: %s (fallback to vector only)", e)
+            bm25_hits = []
+
+    # 4. RRF fusion (vector + BM25)
+    if bm25_hits:
+        from app.rag.hybrid.bm25_search import rrf_fuse
+        # Format vector hits for RRF
+        vec_for_rrf = [
+            {"parent_id": h["parent_id"], "score": h["score"],
+             "content": "", "document_id": h.get("document_id", ""),
+             "filename": h.get("filename", "unknown")}
+            for h in child_hits
+        ]
+        fused = rrf_fuse(vec_for_rrf, bm25_hits)
+        logger.info("RRF fusion: %d unique parents", len(fused))
+    else:
+        fused = [
+            {"parent_id": h["parent_id"], "score": h["score"],
+             "content": "", "document_id": h.get("document_id", ""),
+             "filename": h.get("filename", "unknown")}
+            for h in child_hits
+        ]
+
+    if not fused:
+        return RetrievalResult(
+            hits=[], retrieval_time_ms=int((time.time() - start_time) * 1000),
+            child_hits_count=child_hits_count, parent_count=0,
+            rerank_applied=False, tenant_id=tenant_id,
+        )
+
+    # 5. Build RetrievalHit list
     best_by_parent: dict[str, RetrievalHit] = {}
-    for hit in child_hits:
+    for hit in fused:
         pid = hit["parent_id"]
         if not pid:
             continue
@@ -226,7 +290,7 @@ async def retrieve(
         if pid not in best_by_parent or score > best_by_parent[pid].score:
             best_by_parent[pid] = RetrievalHit(
                 parent_id=pid,
-                content="",
+                content=hit.get("content", ""),
                 source=hit.get("filename", "unknown"),
                 score=score,
                 matched_child="",
@@ -235,14 +299,8 @@ async def retrieve(
             )
 
     parent_ids = list(best_by_parent.keys())
-    if not parent_ids:
-        return RetrievalResult(
-            hits=[], retrieval_time_ms=int((time.time() - start_time) * 1000),
-            child_hits_count=child_hits_count, parent_count=0,
-            rerank_applied=False, tenant_id=tenant_id,
-        )
 
-    # Batch query parent contents from business DB
+    # 6. Batch query parent contents from business DB (fill missing)
     parent_contents: dict[str, str] = {}
     async with async_session_maker() as session:
         stmt = select(ParentChunk).where(ParentChunk.parent_id.in_(parent_ids))
@@ -251,7 +309,8 @@ async def retrieve(
             parent_contents[r.parent_id] = r.content
 
     for pid, hit in best_by_parent.items():
-        hit.content = parent_contents.get(pid, "")
+        if not hit.content:
+            hit.content = parent_contents.get(pid, "")
 
     parent_hits = list(best_by_parent.values())
     parent_hits.sort(key=lambda h: h.score, reverse=True)

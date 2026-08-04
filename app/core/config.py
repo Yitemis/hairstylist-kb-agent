@@ -223,10 +223,34 @@ logging_config = LoggingConfig(
     log_retention_days=int(_get_env("LOG_RETENTION_DAYS", "30")),
 )
 
-database_config = DatabaseConfig(
-    url=_get_env("DATABASE_URL", ""),
-    echo=_get_env("DATABASE_ECHO", "0") == "1",
-)
+class _LazyDatabaseConfig:
+    """延迟读取 DATABASE_URL（支持测试时切换 DB）。"""
+    @property
+    def url(self) -> str:
+        return _get_env("DATABASE_URL", "")
+    @property
+    def echo(self) -> bool:
+        return _get_env("DATABASE_ECHO", "0") == "1"
+    @property
+    def resolved_url(self) -> str:
+        if self.url:
+            return self.url
+        db_path = (PROJECT_ROOT / "data" / "app.db").as_posix()
+        return f"sqlite+aiosqlite:///{db_path}"
+
+
+# 用 Lazy 配置替代之前的 dataclass 实例
+class _DatabaseConfigProxy:
+    """代理到 _LazyDatabaseConfig 的字段。"""
+    def __getattr__(self, name):
+        return getattr(_lazy_db, name)
+    @property
+    def resolved_url(self):
+        return _lazy_db.resolved_url
+
+
+_lazy_db = _LazyDatabaseConfig()
+database_config = _DatabaseConfigProxy()
 
 auth_config = AuthConfig(
     jwt_secret=_get_env("JWT_SECRET", "dev-insecure-change-me"),
