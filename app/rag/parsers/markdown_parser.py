@@ -11,15 +11,29 @@ from typing import List
 
 from app.rag.parsers.doc_types import ChildChunk, ElementType, ParentChunk
 from app.rag.parsers.utils import detect_encoding, download_file, is_safe_url
-from app.rag.chunkers.smart_chunker import (
-    build_child_chunks,
-    build_parent_chunks,
-    extract_qa_pairs,
-    merge_qa_into_chunks,
-    split_markdown_by_heading,
-)
+
+# 懒加载 smart_chunker（避免顶层循环 import 触发 partial-init）
+# 移到函数内部 _get_chunker() 调用
 
 MAX_FILE_SIZE = 20 * 1024 * 1024  # 20MB
+
+
+def _get_chunker():
+    """Lazy import chunker (avoids circular import)."""
+    from app.rag.chunkers.smart_chunker import (
+        build_child_chunks,
+        build_parent_chunks,
+        extract_qa_pairs,
+        merge_qa_into_chunks,
+        split_markdown_by_heading,
+    )
+    return {
+        "build_child_chunks": build_child_chunks,
+        "build_parent_chunks": build_parent_chunks,
+        "extract_qa_pairs": extract_qa_pairs,
+        "merge_qa_into_chunks": merge_qa_into_chunks,
+        "split_markdown_by_heading": split_markdown_by_heading,
+    }
 
 
 class MarkdownParser:
@@ -51,18 +65,19 @@ class MarkdownParser:
         parent_chunk_size: int = 2000,
     ) -> List[ParentChunk]:
         text = self._read_file()
-        sections = split_markdown_by_heading(text, chunk_size, chunk_overlap)
-        qa_pairs = extract_qa_pairs(text)
+        chunker = _get_chunker()
+        sections = chunker["split_markdown_by_heading"](text, chunk_size, chunk_overlap)
+        qa_pairs = chunker["extract_qa_pairs"](text)
         if qa_pairs:
-            sections = merge_qa_into_chunks(sections, qa_pairs)
-        child_chunks = build_child_chunks(
+            sections = chunker["merge_qa_into_chunks"](sections, qa_pairs)
+        child_chunks = chunker["build_child_chunks"](
             sections,
             source_filename=self.filename,
             document_id=document_id,
             tenant_id=tenant_id,
             category=category,
         )
-        return build_parent_chunks(
+        return chunker["build_parent_chunks"](
             child_chunks,
             parent_chunk_size=parent_chunk_size,
             source_filename=self.filename,

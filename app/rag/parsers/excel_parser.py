@@ -11,7 +11,7 @@ from typing import List
 
 from app.rag.parsers.doc_types import ChildChunk, ElementType, ParentChunk
 from app.rag.parsers.utils import download_file, is_safe_url
-from app.rag.chunkers.smart_chunker import build_child_chunks, build_parent_chunks
+# Lazy import chunker to avoid circular
 
 logger = logging.getLogger(__name__)
 

@@ -16,7 +16,9 @@ from typing import List
 
 from app.rag.parsers.doc_types import ChildChunk, ElementType, ParentChunk
 from app.rag.parsers.utils import download_file, is_safe_url
-from app.rag.chunkers.smart_chunker import build_child_chunks, build_parent_chunks
+
+# 顶层不 import smart_chunker（避免循环 import 触发 partial-init）
+# 全部改为函数内 lazy import
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +80,10 @@ class PdfParser:
             return []
 
         full_text = "\n\n".join(pages_text)
+        # Lazy import to avoid circular dependency
         from app.rag.chunkers.smart_chunker import (
-            extract_qa_pairs, merge_qa_into_chunks, split_markdown_by_heading
+            build_child_chunks, build_parent_chunks,
+            extract_qa_pairs, merge_qa_into_chunks, split_markdown_by_heading,
         )
         sections = split_markdown_by_heading(full_text, chunk_size, chunk_overlap)
         qa_pairs = extract_qa_pairs(full_text)
