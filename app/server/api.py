@@ -41,7 +41,10 @@ from app.core.config import (
     server_config,
     auth_config,
 )
+from contextlib import asynccontextmanager
+
 from app.db.session import init_db
+from app.db.migration import run_migrations_on_startup, get_current_revision, get_head_revision
 from app.domain.safety import safety_filter
 
 logger = logging.getLogger(__name__)
@@ -57,21 +60,20 @@ app = FastAPI(
     description="企业级美发行业知识助手服务",
 )
 
-# CORS 配置
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=server_config.cors_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
-@app.on_event("startup")
-async def _startup() -> None:
-    """启动钩子：建表 + 安全告警。"""
+
+async def _lifespan(app):
+    """Lifespan: 启动跑 migration + 安全检查；关闭清理。"""
+    # 1. 启动：跑 Alembic 迁移（生产级：先迁移再服务）
+    try:
+        await run_migrations_on_startup()
+    except Exception as e:
+        logger.error(f"❌ 数据库迁移失败: {e}")
+        raise  # Fast-fail: 启动失败不服务
+    # 2. 启动：建表（fallback，新 DB 第一次 create_all 兜底）
     await init_db()
-    # JWT_SECRET 安全检查：生产环境必须设置
+    # 3. JWT 安全检查
     import os
     env = os.environ.get("ENV", "dev").lower()
     if env == "production" and not auth_config.is_secure:
@@ -83,6 +85,22 @@ async def _startup() -> None:
         logger.warning(
             "⚠️  JWT_SECRET 使用默认值，生产环境务必设置 JWT_SECRET 环境变量"
         )
+    # 4. 当前 migration 版本（健康检查用）
+    rev_now = get_current_revision()
+    rev_head = get_head_revision()
+    logger.info(f"DB migration: current={rev_now} head={rev_head}")
+    yield
+    # 关闭时无清理（连接池在 engine 析构时自动释放）
+
+# CORS 配置
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=server_config.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # 前端静态文件
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -142,11 +160,23 @@ async def health_check() -> dict:
 
     uptime = int(time.time() - _startup_time)
     safety_stats = safety_filter.get_stats()
+    # DB migration 版本（生产可监控）
+    try:
+        rev_current = get_current_revision()
+        rev_head = get_head_revision()
+        migration_status = {
+            "current": rev_current,
+            "head": rev_head,
+            "up_to_date": rev_current == rev_head,
+        }
+    except Exception as e:
+        migration_status = {"error": str(e)}
     body = {
         "status": "healthy" if overall_healthy else "degraded",
         "uptime_seconds": uptime,
         "version": app.version,
         "safety": safety_stats,
+        "migration": migration_status,
         "checks": checks,
     }
     if overall_healthy:

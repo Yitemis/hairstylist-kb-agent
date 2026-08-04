@@ -64,30 +64,23 @@ class MilvusStore:
             collection_name=self.collection,
             dimension=self.dim,
             metric_type=self.metric_type,
-            # 自动创建 id 字段
-            auto_id=True,
+            auto_id=False,
         )
         # 建 HNSW 索引（生产推荐）
-        index_params = client.prepare_index_params()
-        index_params.add_index(
-            field_name="vector",
-            index_type="HNSW",
-            metric_type=self.metric_type,
-            params={"M": 16, "efConstruction": 256},
-        )
-        client.create_index(
-            collection_name=self.collection,
-            index_params=index_params,
-        )
-        logger.info("Milvus 集合创建: %s (dim=%d, HNSW)", self.collection, self.dim)
+        # pymilvus 2.x: create_collection 已经建了默认 AUTOINDEX
+        # 再 create_index 会冲突，所以只建一次
+        # 已用 metric_type 指定距离，建索引由 Milvus 自动管理
+        logger.info("Milvus 集合创建: %s (dim=%d, metric=%s)", self.collection, self.dim, self.metric_type)
 
     def insert(self, vectors: List[List[float]], payloads: List[dict]) -> List[int]:
         """插入子块（payload 必含 parent_id / tenant_id / document_id / filename）。"""
+        import uuid as _uuid
         self.ensure_collection()
         client = self._get_client()
         data = []
         for vec, p in zip(vectors, payloads):
-            row = {"vector": vec}
+            # auto_id=False 时必须自己生成 id
+            row = {"id": int(_uuid.uuid4().int >> 96) & 0x7FFFFFFFFFFFFFFF, "vector": vec}
             row.update({
                 PARENT_ID_KEY: str(p.get(PARENT_ID_KEY, "")),
                 TENANT_ID_KEY: str(p.get(TENANT_ID_KEY, "default")),
