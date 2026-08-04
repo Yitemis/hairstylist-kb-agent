@@ -96,43 +96,21 @@ class PdfParser:
         )
 
     def _extract_with_mineru(self, binary: bytes) -> List[str]:
-        """用 MinerU 服务解析（推荐）。
+        """用 MinerU 后端解析（支持 3 种后端，自动降级）。
 
-        需要部署 MinerU 服务（Apache 2.0 开源免费）：
-            docker pull opendatalab/mineru
-            docker run -d -p 8888:8888 opendatalab/mineru
+        后端选择（环境变量 MINERU_BACKEND，默认 local）:
+            - local (默认): 本地 pipeline，CPU，准确率 86.47
+                           需 pip install -U "mineru[all]"
+            - cloud       : mineru.net 官方云 API，每天 1000 页免费
+                           需 MINERU_API_TOKEN 环境变量
+            - http        : OpenAI 兼容 API（自建或第三方）
+                           需 MINERU_HTTP_URL 环境变量
 
-        配置：环境变量 MINERU_URL（默认 http://localhost:8888）
+        失败自动降级由 PdfParser 统一调度（→ PyMuPDF → pdfplumber → OCR）
         """
-        mineru_url = os.environ.get("MINERU_URL", "http://localhost:8888")
-        try:
-            import requests
-            files = {"file": (self.filename, binary, "application/pdf")}
-            params = {
-                "return_md": "true",
-                "parse_method": "auto",
-            }
-            response = requests.post(
-                f"{mineru_url}/file_parse",
-                files=files,
-                params=params,
-                timeout=120,
-            )
-            if response.status_code == 200:
-                result = response.json()
-                # MinerU 返回格式：{ "results": { "filename": { "md_content": "...", "content_list": [...] } } }
-                results = result.get("results", {})
-                if results:
-                    first_file = list(results.values())[0]
-                    if "md_content" in first_file:
-                        # 直接拿 Markdown 内容
-                        md_text = first_file["md_content"]
-                        return [md_text] if md_text else []
-            logger.warning(f"MinerU 响应异常: {response.status_code}")
-            return []
-        except Exception as e:
-            logger.warning(f"MinerU 调用失败: {e}")
-            return []
+        from app.rag.parsers.mineru_backends import get_mineru_backend
+        backend = get_mineru_backend()
+        return backend.parse(binary, self.filename)
 
     def _extract_with_pymupdf(self, binary: bytes) -> List[str]:
         """PyMuPDF 提取（降级路径，0 成本，Apache 2.0 开源）。"""
