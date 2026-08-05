@@ -91,6 +91,9 @@ async def _lifespan(app):
     # 3.5 启动 metrics gauge updater（定期刷新 memory_facts_total 等）
     from app.core.metrics_updater import start_metrics_updater
     metrics_task = start_metrics_updater()
+    # 3.6 启动数据归档后台任务 (每天跑一次)
+    from app.core.archiver import start_archiver
+    archiver_task = start_archiver()
     # 4. 当前 migration 版本（健康检查用）
     rev_now = get_current_revision()
     rev_head = get_head_revision()
@@ -99,6 +102,8 @@ async def _lifespan(app):
     # 关闭时取消 metrics updater
     if "metrics_task" in locals():
         metrics_task.cancel()
+    if "archiver_task" in locals():
+        archiver_task.cancel()
     # 关闭时无清理（连接池在 engine 析构时自动释放）
 
 # CORS 配置
@@ -1784,3 +1789,20 @@ app.include_router(stylists_router.router)
 app.include_router(services_router.router)
 app.include_router(orders_router.router)
 app.include_router(chat_stream.router)
+
+
+# ------------------------------------------------------------------
+# Admin 端点 (运维用)
+# ------------------------------------------------------------------
+
+@app.post("/api/admin/archive", summary="手动触发数据归档")
+async def admin_archive(
+    current=Depends(get_current_user),
+) -> dict:
+    """手动触发数据归档（运维用）。"""
+    # 简化权限检查：只允许 admin
+    from app.core.config import auth_config
+    if current.role != "admin" and current.id != 1:
+        raise HTTPException(status_code=403, detail="需要 admin 权限")
+    result = await archive_old_data()
+    return {"status": "ok", "archived": result}
