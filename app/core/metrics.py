@@ -38,6 +38,18 @@ llm_tokens_total = Counter(
     ["model", "role"],  # role: prompt/completion
 )
 
+llm_cache_total = Counter(
+    "llm_cache_total",
+    "LLM cache hits/misses",
+    ["result"],  # hit/miss
+)
+
+idempotency_hits_total = Counter(
+    "idempotency_hits_total",
+    "Idempotency cache hits (duplicate requests avoided)",
+)
+
+
 rag_retrievals_total = Counter(
     "rag_retrievals_total",
     "Total RAG retrievals",

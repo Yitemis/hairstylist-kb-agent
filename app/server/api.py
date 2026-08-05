@@ -563,16 +563,14 @@ async def rag_list_documents(tenant_id: str | None = None) -> dict:
     }
 
 
-@app.post("/api/chat", summary="对话接口")
-async def chat(body: dict) -> dict:
-    """对话接口（前后端都用这个）。
+@app.post("/api/chat", summary="对话接口（支持多模态 + role 隔离 + 幂等）")
+async def chat(request: Request, body: dict) -> dict:
+    """对话接口（C 端 + 商家共用，按 role 自动隔离）。
 
-    Body: { "message": str, "user_id": int, "session_id": str | None }
-
-    实现策略：
-    - 中间件链（洋葱模式）：日志、限流
-    - 业务逻辑：意图识别 → booking/knowledge/casual 分流
-    - 状态持久化：每次调用自动 saveStateToSession
+    幂等机制：
+    - 前端传 idempotency_key（client UUID）
+    - 24h 内同样 key 直接返回上次结果
+    - 兜底：用 user_id + message hash
     """
     message = (body.get("message") or "").strip()
     user_id = body.get("user_id")
@@ -581,6 +579,19 @@ async def chat(body: dict) -> dict:
         raise HTTPException(status_code=400, detail="消息不能为空")
     if not user_id:
         raise HTTPException(status_code=400, detail="user_id 必填")
+
+    # 幂等检查（避免重复扣费 + 重复处理）
+    from app.core.cache.llm_cache import get_idempotency_cache, generate_idempotency_key
+    from app.core.metrics import idempotency_hits_total
+    idem_key = body.get("idempotency_key") or generate_idempotency_key(
+        user_id=user_id, message=message, session_id=session_id
+    )
+    idem_cache = get_idempotency_cache()
+    cached_result = idem_cache.get(idem_key)
+    if cached_result is not None:
+        idempotency_hits_total.inc()
+        logger.info("Idempotency hit (key=%s) for user=%d", idem_key, user_id)
+        return cached_result
 
     # 走中间件链
     from app.core.middleware import MiddlewareContext, run_with_middlewares
@@ -638,6 +649,13 @@ async def chat(body: dict) -> dict:
         chat_requests_total.labels(mode="unknown", result="error").inc()
         logger.exception("chat failed: %s", e)
         raise
+    finally:
+        # 成功才缓存（避免缓存错误结果）
+        if "result" in dir() and result is not None:
+            try:
+                idem_cache.set(idem_key, result)
+            except Exception:
+                pass
 
 
 async def _chat_handler(body: dict, ctx) -> dict:
