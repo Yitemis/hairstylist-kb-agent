@@ -86,7 +86,7 @@ def aggregate_metrics(per_query_results: list[dict]) -> dict:
     """聚合多个 query 的指标。"""
     if not per_query_results:
         return {"count": 0}
-    metrics = ["recall@5", "recall@10", "mrr", "hit_rate@5", "ndcg@5"]
+    metrics = ["recall_at_5", "recall_at_10", "mrr", "hit_rate_at_5", "ndcg_at_5"]
     return {
         "count": len(per_query_results),
         **{m: sum(r.get(m, 0) for r in per_query_results) / len(per_query_results) for m in metrics},

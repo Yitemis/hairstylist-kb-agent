@@ -50,7 +50,7 @@ async def evaluate_query(
     t0 = time.time()
     try:
         # 用默认 tenant 评估
-        result = await retrieve_fn(eq.query, "default", top_k)
+        result = await retrieve_fn(eq.query, "demo", top_k)
         # 提取文档内容
         docs = [h.content for h in result.hits if h.content]
     except Exception as e:
@@ -61,7 +61,7 @@ async def evaluate_query(
     return EvalResult(
         query=eq.query,
         category=eq.category,
-        difficulty=eq.difficulty,
+        difficulty=getattr(eq, "difficulty", "easy"),
         expected_keywords=eq.expected_keywords,
         retrieved_count=len(docs),
         top_docs=docs[:3],  # 保留前 3 个
@@ -76,8 +76,9 @@ async def evaluate_query(
 
 async def run_evaluation(
     retrieve_fn,
-    eval_set: list[EvalQuery] = None,
+    eval_set: list = None,
     top_k: int = 10,
+    lang: str = "zh",
 ) -> dict:
     """跑完整评估集，返回聚合报告。
 
@@ -88,13 +89,17 @@ async def run_evaluation(
 
     Returns:
         {
-            "summary": {"count": 30, "recall@5": 0.7, ...},
+            "summary": {"count": 30, "recall_at_5": 0.7, ...},
             "per_query": [EvalResult, ...],
             "by_category": {"knowledge": {...}, "booking": {...}}
         }
     """
     if eval_set is None:
-        eval_set = EVAL_SET
+        if lang == "en":
+            from app.rag.evaluation.eval_set_en import EVAL_SET_EN
+            eval_set = EVAL_SET_EN
+        else:
+            eval_set = EVAL_SET
 
     per_query = []
     for eq in eval_set:
@@ -128,13 +133,13 @@ def format_report(report: dict) -> str:
 
     lines.append(f"\n[By Category]")
     for cat, m in report["by_category"].items():
-        lines.append(f"  {cat}: recall@5={m['recall@5']:.3f} mrr={m['mrr']:.3f} hit_rate@5={m['hit_rate@5']:.3f} n={m['count']}")
+        lines.append(f"  {cat}: recall_at_5={m['recall_at_5']:.3f} mrr={m['mrr']:.3f} hit_rate_at_5={m['hit_rate_at_5']:.3f} n={m['count']}")
 
     # 失败案例
     lines.append(f"\n[Top 5 Failed Queries]")
     failed = [r for r in report["per_query"] if r.recall_at_5 < 0.3 and r.expected_keywords]
     failed.sort(key=lambda r: r.recall_at_5)
     for r in failed[:5]:
-        lines.append(f"  [{r.category}] {r.query[:40]}... -> recall@5={r.recall_at_5:.2f} latency={r.latency_ms}ms")
+        lines.append(f"  [{r.category}] {r.query[:40]}... -> recall_at_5={r.recall_at_5:.2f} latency={r.latency_ms}ms")
 
     return "\n".join(lines)
