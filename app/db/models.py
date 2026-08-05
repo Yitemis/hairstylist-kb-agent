@@ -265,6 +265,7 @@ class ImageChunk(Base, TimestampMixin):
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mime_type: Mapped[str] = mapped_column(String(20), default="image/jpeg", nullable=False)
     category: Mapped[str] = mapped_column(String(50), default="image", index=True, nullable=False)
+    audience: Mapped[str] = mapped_column(String(20), default="all", nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
@@ -280,6 +281,7 @@ class ImageChunk(Base, TimestampMixin):
 
 
 class Document(Base, TimestampMixin):
+    pass  # placeholder
     """知识库文档元信息。
 
     字段对应 MinerU 解析后的元数据 + 业务元信息。
@@ -310,6 +312,9 @@ class Document(Base, TimestampMixin):
     parent_chunks: Mapped[list["ParentChunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )
+    # 受众隔离（借鉴 RBAC）：user=C 端用户, staff=商家员工, all=所有人
+    audience: Mapped[str] = mapped_column(String(20), default="all", nullable=False, index=True)
+
 
 
 class ParentChunk(Base, TimestampMixin):

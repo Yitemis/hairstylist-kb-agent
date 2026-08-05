@@ -23,6 +23,7 @@ TENANT_ID_KEY = "tenant_id"
 DOCUMENT_ID_KEY = "document_id"
 FILENAME_KEY = "filename"
 CATEGORY_KEY = "category"
+AUDIENCE_KEY = "audience"
 
 
 class MilvusStore:
@@ -87,6 +88,7 @@ class MilvusStore:
                 DOCUMENT_ID_KEY: str(p.get(DOCUMENT_ID_KEY, "")),
                 FILENAME_KEY: str(p.get(FILENAME_KEY, "")),
                 CATEGORY_KEY: str(p.get(CATEGORY_KEY, "general")),
+                AUDIENCE_KEY: str(p.get(AUDIENCE_KEY, "all")),
             })
             data.append(row)
         result = client.insert(collection_name=self.collection, data=data)
@@ -101,6 +103,7 @@ class MilvusStore:
         top_k: int = 20,
         category_filter: Optional[List[str]] = None,
         document_id_filter: Optional[str] = None,
+        audience_filter: Optional[List[str]] = None,
     ) -> List[dict]:
         """向量检索（多租户隔离）。返回 [{id, score, payload}, ...]"""
         client = self._get_client()
@@ -109,6 +112,9 @@ class MilvusStore:
         if category_filter:
             cats = '", "'.join(category_filter)
             filter_parts.append(f'{CATEGORY_KEY} in ["{cats}"]')
+        if audience_filter:
+            auds = '", "'.join(audience_filter)
+            filter_parts.append(f'{AUDIENCE_KEY} in ["{auds}"]')
         if document_id_filter:
             filter_parts.append(f'{DOCUMENT_ID_KEY} == "{document_id_filter}"')
         filter_expr = " and ".join(filter_parts)
@@ -119,7 +125,7 @@ class MilvusStore:
             filter=filter_expr,
             output_fields=[
                 PARENT_ID_KEY, TENANT_ID_KEY, DOCUMENT_ID_KEY,
-                FILENAME_KEY, CATEGORY_KEY,
+                FILENAME_KEY, CATEGORY_KEY, AUDIENCE_KEY,
             ],
         )
         # 格式标准化
@@ -134,6 +140,7 @@ class MilvusStore:
                 "document_id": entity.get(DOCUMENT_ID_KEY, ""),
                 "filename": entity.get(FILENAME_KEY, "unknown"),
                 "category": entity.get(CATEGORY_KEY, "general"),
+                "audience": entity.get(AUDIENCE_KEY, "all"),
             })
         return hits
 

@@ -596,6 +596,36 @@ async def chat(body: dict) -> dict:
 
     t0 = _t.time()
     try:
+        # 多模态支持
+        image_paths = body.get("image_paths") or []
+        image_b64s = body.get("image_b64s") or []
+        if image_paths or image_b64s:
+            from app.rag.multimodal_chat import multimodal_chat
+            from app.auth.deps import get_current_user_from_request
+            # 尝试拿当前 user role
+            is_staff = False
+            try:
+                auth_header = request.headers.get("Authorization", "")
+                if auth_header.startswith("Bearer "):
+                    from app.auth.security import decode_token
+                    payload = decode_token(auth_header[7:])
+                    if payload and payload.get("role") in ("staff", "admin"):
+                        is_staff = True
+            except Exception:
+                pass
+            user_id_val = body.get("user_id") or 0
+            mm_result = await multimodal_chat(
+                text=message, image_paths=image_paths, image_b64s=image_b64s,
+                is_staff=is_staff, tenant_id=str(user_id_val) or "default",
+            )
+            chat_requests_total.labels(mode="multimodal", result="success").inc()
+            return {
+                "mode": "multimodal",
+                "answer": mm_result["answer"],
+                "audience": mm_result["audience"],
+                "sources_count": mm_result["sources_count"],
+                "images_count": mm_result["images_count"],
+            }
         result = await run_with_middlewares(ctx, lambda: _chat_handler(body, ctx))
         chat_requests_total.labels(
             mode=result.get("mode", "unknown"), result="success"

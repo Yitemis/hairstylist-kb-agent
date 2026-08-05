@@ -55,7 +55,7 @@ async def get_milvus_store():
     global _milvus_store
     if _milvus_store is not None:
         return _milvus_store
-    from app.rag.milvus_store import MilvusStore
+    from app.rag.milvus_store import MilvusStore, AUDIENCE_KEY
     from app.core.config import vector_store_config
     _milvus_store = MilvusStore(
         host=vector_store_config.host or "localhost",
@@ -81,6 +81,7 @@ async def index_document(
     filename: str,
     tenant_id: str = "default",
     category: str = "general",
+    audience: str = "all",
     parent_chunk_size: int = 2000,
     child_chunk_size: int = 800,
     child_chunk_overlap: int = 80,
@@ -131,6 +132,7 @@ async def index_document(
                 filename=filename,
                 file_type="pdf",
                 mineru_status="indexed",
+                audience=audience,
             )
             session.add(doc)
             await session.flush()
@@ -190,6 +192,7 @@ async def index_document(
             "document_id": document_id,
             "filename": filename,
             "category": category,
+            "audience": audience,
         })
     ms.insert(vectors, payloads)
 
@@ -214,6 +217,7 @@ async def retrieve(
     enable_rewrite: bool = False,
     rewrite_strategies: Optional[List[str]] = None,
     category_filter: Optional[List[str]] = None,
+    audience_filter: Optional[List[str]] = None,  # RBAC: user/staff/all
 ) -> RetrievalResult:
     """Two-stage retrieval with hybrid (vector + BM25) + query rewriting.
 
@@ -267,6 +271,7 @@ async def retrieve(
             vh = ms.search(
                 cq_vec, tenant_id=tenant_id, top_k=fetch_k,
                 category_filter=category_filter,
+                audience_filter=audience_filter,
             )
             all_vector_hits.extend(vh)
         except Exception as e:
