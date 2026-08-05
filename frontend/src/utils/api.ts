@@ -314,6 +314,83 @@ export async function sendChat(message: string, userId: number, sessionId?: stri
   })
 }
 
+
+/**
+ * SSE 流式对话：实时接收 Agent 思考 / 工具调用 / 最终答案。
+ * 用 fetch + ReadableStream 实现（EventSource 不支持 POST）。
+ * 
+ * 事件流（与后端 app/core/events.py 对应）：
+ *   intent      {intent, mode}              意图识别结果
+ *   thinking    {text}                       模型思考过程
+ *   text        {delta}                      文本片段（增量）
+ *   tool_call   {name, args}                 正在调用工具
+ *   tool_result {name, summary}              工具返回结果摘要
+ *   options     {items}                      可点击选项
+ *   done        {answer, mode, options}      完成
+ *   error       {message}                    出错
+ */
+export interface StreamEvent {
+  event: string
+  data: any
+}
+
+export async function sendChatStream(
+  message: string,
+  userId: number,
+  onEvent: (e: StreamEvent) => void,
+  sessionId?: string,
+): Promise<void> {
+  const token = localStorage.getItem('token') || ''
+  const res = await fetch('/api/chat/stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: token ? `Bearer ${token}` : '',
+    },
+    body: JSON.stringify({ message, session_id: sessionId, user_id: userId }),
+  })
+  if (!res.ok || !res.body) {
+    onEvent({ event: 'error', data: { message: `HTTP ${res.status}` } })
+    return
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    // SSE 消息以 
+
+ 分隔
+    let idx: number
+    while ((idx = buffer.indexOf('
+
+')) !== -1) {
+      const raw = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 4)
+      // 解析 event: / data: 行
+      const lines = raw.split('
+')
+      let eventName = 'message'
+      let dataStr = ''
+      for (const line of lines) {
+        if (line.startsWith('event: ')) eventName = line.slice(7).trim()
+        else if (line.startsWith('data: ')) dataStr += line.slice(6)
+      }
+      if (!dataStr) continue
+      try {
+        const data = JSON.parse(dataStr)
+        onEvent({ event: eventName, data })
+        if (eventName === 'done' || eventName === 'error') return
+      } catch (e) {
+        // ignore parse error
+      }
+    }
+  }
+}
+
+
 export default {
   registerCustomer,
   loginCustomer,

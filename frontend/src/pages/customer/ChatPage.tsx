@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { getUser, clearAuth, getToken } from '../../utils/auth'
-import { sendChat, listBranches, type ChatOption } from '../../utils/api'
+import { sendChatStream, listBranches, type ChatOption } from '../../utils/api'
 import { showToast } from '../../utils/toast'
 
 interface Message {
@@ -120,21 +120,41 @@ export default function CustomerChatPage() {
     if (!overrideText) setInput('')
     addMsg({ role: 'user', text })
     setTyping(true)
+    // 准备一个 AI 消息占位，后续流式拼接
+    const aiMsgId = Date.now() + Math.random()
+    let aiText = ''
+    let aiOptions: any[] | undefined
+    let aiMode: string | undefined
+    addMsg({ id: aiMsgId as any, role: 'ai', text: '' })
     try {
-      const res = await sendChat(text, user.id!)
-      if (!res.data?.answer) {
-        showToast(res.message || '发送失败', 'error')
-        setTyping(false)
-        return
-      }
-      setTyping(false)
-      addMsg({
-        role: 'ai',
-        text: res.data.answer,
-        options: res.data.options,
+      await sendChatStream(text, user.id!, (e) => {
+        if (e.event === 'text') {
+          aiText += e.data.delta || ''
+          // 实时更新消息（更新最后一条 AI 消息）
+          setMessages((prev) => prev.map((m) => 
+            m.id === aiMsgId ? { ...m, text: aiText } : m
+          ))
+        } else if (e.event === 'tool_call') {
+          // 显示工具调用状态
+          setMessages((prev) => prev.map((m) => 
+            m.id === aiMsgId ? { ...m, text: aiText + `
+
+🔧 正在调用 ${e.data.name}...` } : m
+          ))
+        } else if (e.event === 'options') {
+          aiOptions = e.data.items
+        } else if (e.event === 'done') {
+          aiMode = e.data.mode
+          setMessages((prev) => prev.map((m) => 
+            m.id === aiMsgId ? { ...m, text: aiText, options: aiOptions || e.data.options, mode: aiMode } : m
+          ))
+        } else if (e.event === 'error') {
+          showToast(e.data.message || '对话失败', 'error')
+        }
       })
     } catch (e: any) {
       showToast(e?.detail || e?.message || '网络错误，请重试', 'error')
+    } finally {
       setTyping(false)
     }
   }
