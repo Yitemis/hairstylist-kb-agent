@@ -242,6 +242,32 @@ class PendingAction(Base, TimestampMixin):
 
 # Index: 快速查 (user_id, status, expires_at)
 
+
+class ImageChunk(Base, TimestampMixin):
+    """图片块元信息（vector 存 Milvus，元信息存业务库）。
+
+    借鉴 ekbs 设计：
+    - 父子结构：图片关联到父块（同一章节/页面）
+    - 多模态 embedding：图片转向量
+    - 来源追溯：page / bbox / image_path
+    """
+    __tablename__ = "image_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    image_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+    document_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    parent_chunk_id: Mapped[str] = mapped_column(String(64), index=True, nullable=True)  # 关联父块
+    filename: Mapped[str] = mapped_column(String(200), nullable=False)
+    image_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mime_type: Mapped[str] = mapped_column(String(20), default="image/jpeg", nullable=False)
+    category: Mapped[str] = mapped_column(String(50), default="image", index=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 # ============================================================
 # RAG 文档与父子分块模型
 # ============================================================
