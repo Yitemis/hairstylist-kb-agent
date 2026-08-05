@@ -332,9 +332,19 @@ async def retrieve(
             logger.warning("Rerank failed: %s", e)
 
     final = parent_hits[:top_k]
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    # 监控：RAG 检索指标
+    try:
+        from app.core.metrics import rag_retrievals_total
+        rag_retrievals_total.labels(
+            tenant_id=tenant_id,
+            result="success" if final else "no_hits",
+        ).inc()
+    except Exception:
+        pass  # 监控失败不影响业务
     return RetrievalResult(
         hits=final,
-        retrieval_time_ms=int((time.time() - start_time) * 1000),
+        retrieval_time_ms=elapsed_ms,
         child_hits_count=child_hits_count,
         parent_count=len(parent_hits),
         rerank_applied=rerank_applied,

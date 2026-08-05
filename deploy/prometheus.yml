@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # FastAPI 后端 (有 /metrics 端点)
+  - job_name: 'hairstylist-api'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+        labels:
+          service: 'api'
+
+  # Milvus 自带 metrics
+  - job_name: 'milvus'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['milvus-standalone:9091']
+        labels:
+          service: 'milvus'
+
+  # Prometheus 自身
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

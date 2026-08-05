@@ -85,11 +85,17 @@ async def _lifespan(app):
         logger.warning(
             "⚠️  JWT_SECRET 使用默认值，生产环境务必设置 JWT_SECRET 环境变量"
         )
+    # 3.5 启动 metrics gauge updater（定期刷新 memory_facts_total 等）
+    from app.core.metrics_updater import start_metrics_updater
+    metrics_task = start_metrics_updater()
     # 4. 当前 migration 版本（健康检查用）
     rev_now = get_current_revision()
     rev_head = get_head_revision()
     logger.info(f"DB migration: current={rev_now} head={rev_head}")
     yield
+    # 关闭时取消 metrics updater
+    if "metrics_task" in locals():
+        metrics_task.cancel()
     # 关闭时无清理（连接池在 engine 析构时自动释放）
 
 # CORS 配置
