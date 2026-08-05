@@ -148,7 +148,7 @@ async def multimodal_chat(
             from app.rag.image_indexer import search_images
             # 用图片路径作为 image 标识（实际 VLM 检索需 image embed）
             # 这里只做：text + 图片检索图
-            from app.rag.v2_engine import _get_embedding
+            from app.rag.v2_engine import _get_embedding  # text_embedding (硅基流动)
             from app.rag.milvus_store import CATEGORY_KEY
             from app.rag.image_indexer import _CACHE  # internal
             # 简化：用 text 当 query 搜图（实际应该是 image embed）

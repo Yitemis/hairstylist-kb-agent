@@ -21,7 +21,7 @@ async def embed_image(image_path: str) -> List[float]:
     """单张图片转向量（多模态 embedding）。"""
     from app.embedding import build_embedding_model
     from agentscope.message import DataBlock, Base64Source
-    m = build_embedding_model()
+    m = build_embedding_model(capability="mm_embedding")
     with open(image_path, "rb") as f:
         img_bytes = f.read()
     ext = Path(image_path).suffix.lower().lstrip(".")
@@ -38,7 +38,7 @@ async def embed_images_batch(image_paths: List[str]) -> List[List[float]]:
     # build_embedding_model 内部已并发（batch_size=1, 但多协程）
     from app.embedding import build_embedding_model
     from agentscope.message import DataBlock, Base64Source
-    m = build_embedding_model()
+    m = build_embedding_model(capability="mm_embedding")
     blocks = []
     for p in image_paths:
         with open(p, "rb") as f:

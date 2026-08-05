@@ -1,31 +1,53 @@
 # -*- coding: utf-8 -*-
 """自定义 Embedding 适配器。"""
 from .ark_vision_embedding import ArkVisionEmbeddingModel
+from .siliconflow_text_embedding import SiliconFlowTextEmbedding
+from .router import Capability, get_model_router, get_endpoint
 
 # 全局单例，避免重复初始化
 _embedding_model: ArkVisionEmbeddingModel | None = None
 _rerank_model = None
 
 
-def build_embedding_model() -> ArkVisionEmbeddingModel:
-    """基于配置构建火山方舟 vision embedding 模型实例。
+def build_embedding_model(capability: str = "text_embedding"):
+    """基于 capability 构建 embedding 模型（ModelRouter 路由）。
+
+    Args:
+        capability: 'text_embedding' (硅基流动) | 'mm_embedding' (火山方舟)
 
     Returns:
-        ArkVisionEmbeddingModel: 可传给 KnowledgeBase 的嵌入模型。
+        EmbeddingModelBase 实例（多模态或纯文本）
+
+    Raises:
+        RuntimeError: capability 端点不可用（如 mm_embedding 欠费）
     """
     from agentscope.credential import OpenAICredential
 
-    from ..core.config import embedding_config
-
+    cap = Capability(capability) if isinstance(capability, str) else capability
+    endpoint = get_endpoint(cap)
+    if endpoint is None:
+        raise RuntimeError(
+            f"模型能力 {capability} 不可用（未配置或被禁用）。"
+            f"当前可用: {[c.value for c in get_model_router().list_capabilities()]}"
+        )
     credential = OpenAICredential(
-        api_key=embedding_config.api_key,
-        base_url=embedding_config.base_url,
+        api_key=endpoint.api_key,
+        base_url=endpoint.base_url,
     )
-    return ArkVisionEmbeddingModel(
-        credential=credential,
-        model=embedding_config.model,
-        dimensions=embedding_config.dimensions,
-    )
+    if cap == Capability.TEXT_EMBEDDING:
+        return SiliconFlowTextEmbedding(
+            credential=credential,
+            model=endpoint.model,
+            dimensions=endpoint.dimensions,
+        )
+    elif cap == Capability.MM_EMBEDDING:
+        return ArkVisionEmbeddingModel(
+            credential=credential,
+            model=endpoint.model,
+            dimensions=endpoint.dimensions,
+        )
+    else:
+        raise RuntimeError(f"不支持的 capability: {capability}")
 
 
 def build_rerank_model():

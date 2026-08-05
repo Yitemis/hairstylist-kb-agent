@@ -68,9 +68,10 @@ async def get_milvus_store():
 
 
 async def _get_embedding(texts: List[str]) -> List[List[float]]:
+    """纯文本 embedding（用硅基流动 BAAI，便宜快速）。"""
     from app.embedding import build_embedding_model
     from agentscope.message import TextBlock
-    model = build_embedding_model()
+    model = build_embedding_model(capability="text_embedding")
     resp = await model([TextBlock(text=t) for t in texts])
     return resp.embeddings
 
