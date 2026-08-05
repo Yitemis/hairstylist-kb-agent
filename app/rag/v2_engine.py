@@ -211,15 +211,18 @@ async def retrieve(
     fetch_k: int = 20,
     enable_rerank: bool = True,
     enable_bm25: bool = True,
+    enable_rewrite: bool = False,
+    rewrite_strategies: Optional[List[str]] = None,
     category_filter: Optional[List[str]] = None,
 ) -> RetrievalResult:
-    """Two-stage retrieval with hybrid (vector + BM25) search.
+    """Two-stage retrieval with hybrid (vector + BM25) + query rewriting.
 
-    Stage 1: Dual recall
+    Stage 1: Query rewriting (if enable_rewrite) - generate candidate queries
+    Stage 2: Dual recall
       - Vector: Milvus Top-FetchK
       - BM25: PG tsvector Top-FetchK (if enable_bm25)
       - RRF fusion
-    Stage 2: aggregate by parent_id -> batch query DB -> Rerank -> Top-K parents
+    Stage 3: aggregate by parent_id -> batch query DB -> Rerank -> Top-K parents
     """
     from app.db.session import async_session_maker
     from app.db.models import ParentChunk
@@ -228,35 +231,83 @@ async def retrieve(
     start_time = time.time()
     ms = await get_milvus_store()
 
-    # 1. Embedding query
-    query_vec = (await _get_embedding([query]))[0]
+    # 0. Query rewriting (multi-strategy candidate generation)
+    candidate_queries = [query]
+    selfquery_filters: dict = {}
+    if enable_rewrite:
+        try:
+            from app.rag.query.rewriter import rewrite_query
+            rewrites = await rewrite_query(query, strategies=rewrite_strategies)
+            for r in rewrites:
+                candidate_queries.extend(r.candidates)
+                if r.strategy == "selfquery" and r.filters:
+                    selfquery_filters.update(r.filters)
+            # 去重（保留顺序）
+            seen = set()
+            deduped = []
+            for q in candidate_queries:
+                if q not in seen:
+                    seen.add(q)
+                    deduped.append(q)
+            candidate_queries = deduped
+            # 合并 selfquery 类别过滤
+            if selfquery_filters.get("category") and not category_filter:
+                category_filter = selfquery_filters["category"]
+            logger.info("Query rewrite: %d strategies, %d candidates",
+                        len(rewrites), len(candidate_queries))
+        except Exception as e:
+            logger.warning("Query rewrite failed (use original): %s", e)
 
-    # 2. Vector recall (Milvus)
-    child_hits = ms.search(
-        query_vec, tenant_id=tenant_id, top_k=fetch_k,
-        category_filter=category_filter,
-    )
+    # 1. Embedding + vector recall (Milvus) - 用每个 candidate query 检索后融合
+    from app.rag.hybrid.bm25_search import rrf_fuse
+    all_vector_hits = []
+    for cq in candidate_queries:
+        try:
+            cq_vec = (await _get_embedding([cq]))[0]
+            vh = ms.search(
+                cq_vec, tenant_id=tenant_id, top_k=fetch_k,
+                category_filter=category_filter,
+            )
+            all_vector_hits.extend(vh)
+        except Exception as e:
+            logger.warning("Vector recall for candidate %r failed: %s", cq[:30], e)
+    # RRF 融合多路 vector hits
+    if all_vector_hits:
+        child_hits = rrf_fuse(all_vector_hits, [], k=60, vector_weight=1.0, bm25_weight=0.0)[:fetch_k]
+    else:
+        child_hits = []
     child_hits_count = len(child_hits)
-    logger.info("Milvus recall: %d children (tenant=%s)", child_hits_count, tenant_id)
+    logger.info("Milvus recall: %d children (tenant=%s, candidates=%d)",
+                child_hits_count, tenant_id, len(candidate_queries))
 
-    # 3. BM25 recall (PG tsvector)
+    # 2. BM25 recall (PG tsvector) - 用每个 candidate query 检索
     bm25_hits = []
     if enable_bm25:
         from app.rag.hybrid.bm25_search import bm25_search
-        try:
-            bm25_hits = await bm25_search(
-                async_session_maker, query, tenant_id=tenant_id,
-                top_k=fetch_k, category_filter=category_filter,
-            )
-            logger.info("BM25 recall: %d parents (tenant=%s)", len(bm25_hits), tenant_id)
-        except Exception as e:
-            logger.warning("BM25 search failed: %s (fallback to vector only)", e)
-            bm25_hits = []
+        all_bm25_hits = []
+        for cq in candidate_queries:
+            try:
+                bh = await bm25_search(
+                    async_session_maker, cq, tenant_id=tenant_id,
+                    top_k=fetch_k, category_filter=category_filter,
+                )
+                all_bm25_hits.extend(bh)
+            except Exception as e:
+                logger.warning("BM25 for candidate %r failed: %s", cq[:30], e)
+        # 同一 parent_id 保留最高分
+        if all_bm25_hits:
+            best: dict[str, dict] = {}
+            for h in all_bm25_hits:
+                pid = h["parent_id"]
+                if pid not in best or h["score"] > best[pid]["score"]:
+                    best[pid] = h
+            bm25_hits = sorted(best.values(), key=lambda x: x["score"], reverse=True)[:fetch_k]
+        logger.info("BM25 recall: %d parents (tenant=%s)", len(bm25_hits), tenant_id)
 
     # 4. RRF fusion (vector + BM25)
     if bm25_hits:
         from app.rag.hybrid.bm25_search import rrf_fuse
-        # Format vector hits for RRF
+        # child_hits 已经是多 candidate RRF 融合的结果
         vec_for_rrf = [
             {"parent_id": h["parent_id"], "score": h["score"],
              "content": "", "document_id": h.get("document_id", ""),
