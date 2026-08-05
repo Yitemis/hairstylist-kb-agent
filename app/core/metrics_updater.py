@@ -22,7 +22,7 @@ async def update_gauge_loop(interval_seconds: int = 60):
 
                 async with async_session_maker() as session:
                     rows = (await session.execute(
-                        text("SELECT user_id, COUNT(*) FROM user_facts GROUP BY user_id")
+                        text("SELECT user_id, COUNT(*) FROM user_profiles GROUP BY user_id")
                     )).fetchall()
                     # 清掉旧标签 (避免 label cardinality 增长)
                     memory_facts_total.clear()
