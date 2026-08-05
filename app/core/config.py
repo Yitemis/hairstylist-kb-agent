@@ -159,8 +159,45 @@ class AuthConfig:
 
     @property
     def is_secure(self) -> bool:
-        """生产环境应替换默认密钥。"""
-        return self.jwt_secret != "dev-insecure-change-me"
+        """检查 JWT secret 是否安全（JavaGuide 安全 + OWASP JWT 规范）。
+
+        - 不能是默认 dev 值
+        - 长度 >= 32 字符（256 bit 推荐）
+        - 至少 2 种字符类（字母/数字/特殊）
+        """
+        import re as _re
+        if self.jwt_secret == "dev-insecure-change-me":
+            return False
+        if len(self.jwt_secret) < 32:
+            return False
+        has_alpha = bool(_re.search(r"[a-zA-Z]", self.jwt_secret))
+        has_digit = bool(_re.search(r"\d", self.jwt_secret))
+        has_special = bool(_re.search(r"[^a-zA-Z0-9]", self.jwt_secret))
+        return sum([has_alpha, has_digit, has_special]) >= 2
+
+    def validate_for_env(self, env: str) -> None:
+        """启动时强校验（fail-fast）。
+
+        借鉴 JavaGuide 安全：所有环境都要求强 secret，不只是 production。
+        """
+        import re as _re
+        if self.jwt_secret == "dev-insecure-change-me":
+            raise RuntimeError(
+                "JWT_SECRET 使用默认值！请设置强密钥 (>=32 字符 + 字母数字特殊) "
+                "示例: openssl rand -base64 32"
+            )
+        if len(self.jwt_secret) < 32:
+            raise RuntimeError(
+                f"JWT_SECRET 长度仅 {len(self.jwt_secret)} (< 32)。"
+                "请用 openssl rand -base64 32 生成"
+            )
+        has_alpha = bool(_re.search(r"[a-zA-Z]", self.jwt_secret))
+        has_digit = bool(_re.search(r"\d", self.jwt_secret))
+        has_special = bool(_re.search(r"[^a-zA-Z0-9]", self.jwt_secret))
+        if sum([has_alpha, has_digit, has_special]) < 2:
+            raise RuntimeError(
+                "JWT_SECRET 过弱：必须包含至少 2 种字符类（字母/数字/特殊）"
+            )
 
 
 # ------------------------------------------------------------------

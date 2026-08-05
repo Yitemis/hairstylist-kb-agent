@@ -81,10 +81,13 @@ async def _lifespan(app):
             "❌ 生产环境必须设置 JWT_SECRET 环境变量！\n"
             "当前使用默认密钥 'dev-insecure-change-me'，存在严重安全风险。"
         )
-    if not auth_config.is_secure:
-        logger.warning(
-            "⚠️  JWT_SECRET 使用默认值，生产环境务必设置 JWT_SECRET 环境变量"
-        )
+    # JWT secret 强校验（fail-fast：dev 也要求 32+ 位 + 2 种字符类）
+    try:
+        auth_config.validate_for_env(env)
+        logger.info("✅ JWT secret 校验通过 (len=%d)", len(auth_config.jwt_secret))
+    except RuntimeError as e:
+        logger.error(str(e))
+        raise  # fail-fast: 启动失败不服务
     # 3.5 启动 metrics gauge updater（定期刷新 memory_facts_total 等）
     from app.core.metrics_updater import start_metrics_updater
     metrics_task = start_metrics_updater()
