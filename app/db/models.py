@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    JSON,
     Numeric,
     String,
     Text,
@@ -212,6 +213,34 @@ class UserProfile(Base, TimestampMixin):
     source_message_id: Mapped[int | None] = mapped_column(ForeignKey("chat_messages.id"), nullable=True)
     confidence: Mapped[float] = mapped_column(default=1.0, nullable=False)  # 0~1，LLM 给的置信度
 
+
+
+
+class PendingAction(Base, TimestampMixin):
+    """HITL 待确认 action。
+
+    借鉴 OAuth 2.0 一次性授权码模式：
+    - AI 想执行高风险操作 → 创建 PendingAction（生成 token 给前端）
+    - 前端显示 '请确认' 卡片
+    - 用户确认 → 带 token 回来 → 执行
+    - Token 一次性 + 5 分钟过期（防 CSRF / 误操作）
+    """
+
+    __tablename__ = "pending_actions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    action_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    action_params: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)  # SHA-256
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+
+# Index: 快速查 (user_id, status, expires_at)
 
 # ============================================================
 # RAG 文档与父子分块模型
