@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.auth.deps import CurrentUser, get_current_user, require_staff, require_user
+from app.core.middleware_idempotency import idempotent
 from app.db.models import Order, Stylist, Service
 from app.db.session import get_session
 from app.schemas.order import (
@@ -114,8 +115,10 @@ async def get_order_detail(
     )
 
 
-@router.post("/orders", summary="创建订单", response_model=OrderPublic)
+@router.post("/orders", summary="创建订单（幂等）", response_model=OrderPublic)
+@idempotent("create_order")
 async def create_order(
+    request: Request,
     body: OrderCreate,
     current: Annotated[CurrentUser, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(get_session)],

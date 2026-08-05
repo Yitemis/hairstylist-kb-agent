@@ -216,6 +216,28 @@ class UserProfile(Base, TimestampMixin):
 
 
 
+class IdempotencyRecord(Base, TimestampMixin):
+    """幂等记录：避免重复创建（订单 / 支付 等高风险操作）。
+
+    借鉴 JavaGuide idempotency.md + Stripe API 设计：
+    - 客户端传 Idempotency-Key: <uuid>
+    - 服务端：第一次调实际执行，后续直接返回缓存
+    - 4 要素：唯一 key + 状态 + 持久化 + 过期
+    - TTL 24h (防误操作 + 兼顾性能)
+    """
+
+    __tablename__ = "idempotency_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    action: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # body hash 防 key 复用但 body 不同
+    response_status: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_body: Mapped[dict] = mapped_column(JSON, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+
+
 class PendingAction(Base, TimestampMixin):
     """HITL 待确认 action。
 
