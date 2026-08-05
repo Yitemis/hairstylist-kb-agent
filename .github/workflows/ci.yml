@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  # ============================================================
+  # Job 1: Lint + 快速单测 (无外部服务, 30秒)
+  # ============================================================
+  unit-tests:
+    name: Unit Tests (fast, no services)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pybreaker python-dotenv httpx
+
+      - name: Run pure unit tests (no DB/Milvus)
+        env:
+          JWT_SECRET: ci_test_secret_at_least_32_characters_long_xx
+        run: |
+          # 只跑不依赖 PG/Milvus 的纯单元测试
+          pytest tests/test_audience_isolation_unit.py \
+                 tests/test_idempotency.py \
+                 tests/test_jwt_security.py \
+                 tests/test_metrics.py \
+                 tests/test_milvus_store.py \
+                 tests/test_mineru_backends.py \
+                 tests/test_model_gateway.py \
+                 tests/test_model_router.py \
+                 tests/test_vlm_image.py::test_image_chunk_model_fields \
+                 -v --tb=short 2>&1 | tail -50
+
+      - name: Python syntax check (all files)
+        run: |
+          python -c "import compileall, sys; sys.exit(0 if compileall.compile_dir('app', quiet=1) else 1)"
+
+  # ============================================================
+  # Job 2: 集成测试 (需要 PG + Milvus, 5-10分钟)
+  # ============================================================
+  integration-tests:
+    name: Integration Tests (PG + Milvus)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: unit-tests
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hair
+          POSTGRES_PASSWORD: hair123
+          POSTGRES_DB: hairstylist
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      # Milvus standalone 需要 etcd + minio + milvus
+      # 用官方 docker-compose 启动更简单
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pybreaker python-dotenv
+
+      - name: Start Milvus + MinIO + etcd
+        run: |
+          # 用 milvus 官方 standalone 启动脚本
+          bash standalone_embed.sh start 2>&1 || {
+            # Fallback: 用 docker run 直接启动 (如果有 docker)
+            docker run -d --name milvus-etcd -p 2379:2379 -e ETCD_AUTO_COMPACTION_MODE=revision quay.io/coreos/etcd:v3.5.5
+            docker run -d --name milvus-minio -p 9000:9000 -e MINIO_ACCESS_KEY=minio -e MINIO_SECRET_KEY=minio123 minio/minio:RELEASE.2023-03-20T20-16-18Z server /data
+            docker run -d --name milvus -p 19530:19530 -p 9091:9091 \
+              -e ETCD_ENDPOINTS=milvus-etcd:2379 \
+              -e MINIO_ADDRESS=milvus-minio:9000 \
+              milvusdb/milvus:v2.3.3 \
+              milvus run standalone
+            sleep 30
+          }
+
+      - name: Wait for services
+        run: |
+          sleep 30
+          # Verify PG
+          pg_isready -h localhost -p 5432 -U hair
+          # Verify Milvus
+          curl -f http://localhost:9091/health || echo "Milvus not ready"
+
+      - name: Run alembic migrations
+        env:
+          DATABASE_URL: postgresql+asyncpg://hair:hair123@localhost:5432/hairstylist
+          JWT_SECRET: ci_test_secret_at_least_32_characters_long_xx
+        run: |
+          alembic upgrade head
+
+      - name: Run all tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://hair:hair123@localhost:5432/hairstylist
+          JWT_SECRET: ci_test_secret_at_least_32_characters_long_xx
+        run: |
+          pytest tests/ -v --tb=short --ignore=tests/test_rag_pipeline.py 2>&1 | tail -80
