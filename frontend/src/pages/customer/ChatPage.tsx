@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getUser, clearAuth } from '../../utils/auth'
+import { sendChat, listBranches, type ChatOption } from '../../utils/api'
 import { showToast } from '../../utils/toast'
 
 /* ── Types ─────────────────────────────────────────── */
@@ -35,21 +36,6 @@ const STYLISTS: CardItem[] = [
   { id: 's2', title: '王芳芳', subtitle: '擅长剪发·造型·8年经验',  badge: '¥160/h' },
   { id: 's3', title: '刘志远', subtitle: '擅长染色·护理·6年经验',  badge: '¥140/h' },
 ]
-const AI_RESPONSES = [
-  {
-    thinking: '用户想预约烫发，我来查询本周末可用时段...',
-    text: '好的！烫发一般需要 2.5–3 小时，这周末（7月5日–6日）都有档期 😊\n\n请问你偏好哪家门店？',
-  },
-  {
-    thinking: '用户上传了图片，我正在分析发质和发型特征...',
-    text: '我看到了你的发型图片！根据目前的发质状态，推荐尝试**韩系大波浪烫**，会非常适合你的脸型轮廓。\n\n需要帮你预约擅长烫发的发型师吗？',
-  },
-  {
-    thinking: '正在从知识库中检索最新分店列表...',
-    text: '好的，以下是距你最近的几家门店，请选择方便的门店：',
-  },
-]
-
 function makeId() { return Math.random().toString(36).slice(2) }
 function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
 
@@ -212,39 +198,66 @@ export default function CustomerChatPage() {
   /* SSE simulation */
   const streamAiReply = useCallback(async (idx: number, extraCards?: CardItem[]) => {
     stopRef.current = false
-    const resp = AI_RESPONSES[idx % AI_RESPONSES.length]
     const msgId = makeId()
     const startMs = Date.now()
 
     setStreamState('thinking')
-    setMessages(prev => [...prev, { id: msgId, role: 'ai', type: 'text', time: nowTime(), thinking: resp.thinking, streamingText: '' }])
+    setMessages(prev => [...prev, { id: msgId, role: 'ai', type: 'text', time: nowTime(), thinking: '正在分析您的请求...', streamingText: '' }])
     setStreamingMsgId(msgId)
-    await new Promise(r => setTimeout(r, 800))
+    await new Promise(r => setTimeout(r, 600))
 
     if (stopRef.current) {
-      showToast('生成已中断', 'info')
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: '已中断', stats: { tokens: 0, ms: Date.now() - startMs } } : m))
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: '已中断' } : m))
       setStreamState('idle'); setStreamingMsgId(null); return
     }
 
     setStreamState('streaming')
-    const full = resp.text
-    let acc = ''
-    for (let i = 0; i < full.length; i++) {
-      if (stopRef.current) {
-        showToast('生成已中断', 'info')
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: acc, stats: { tokens: Math.round(acc.length * 0.7), ms: Date.now() - startMs } } : m))
-        setStreamState('idle'); setStreamingMsgId(null); return
-      }
-      acc += full[i]
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: acc } : m))
-      await new Promise(r => setTimeout(r, 28))
-    }
+    const user = getUser()
+    const userId = (user as any)?.id || parseInt(localStorage.getItem('user_id') || '1')
+    const finalSessionId = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').session_id || 'default' } catch { return 'default' } })()
+    try {
+      const resp = await sendChat(input, userId, finalSessionId)
+      const respData: any = resp.data || resp
+      const inner: any = respData.data || respData
+      const answer: string = inner.answer || (typeof resp === 'string' ? resp : JSON.stringify(resp))
+      const mode: string = inner.mode || 'casual'
+      const options: ChatOption[] = inner.options || []
 
-    const ms = Date.now() - startMs
-    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: full, stats: { tokens: Math.round(full.length * 0.72 + 12), ms } } : m))
-    if (extraCards) setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'card-list', cards: extraCards, time: nowTime() }])
-    setStreamState('idle'); setStreamingMsgId(null)
+      // type out the answer
+      let acc = ''
+      for (let i = 0; i < answer.length; i++) {
+        if (stopRef.current) {
+          showToast('生成已中断', 'info')
+          setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: acc } : m))
+          setStreamState('idle'); setStreamingMsgId(null); return
+        }
+        acc += answer[i]
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: acc } : m))
+        await new Promise(r => setTimeout(r, 28))
+      }
+
+      const ms = Date.now() - startMs
+      // save the mode (e.g. booking) on the bubble
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: acc, stats: { tokens: Math.round(acc.length * 0.72 + 12), ms }, mode: mode } : m))
+
+      // booking mode → show branch cards (and on first hit, fetch from /api/branches if not given)
+      if (mode === 'booking' && options.length === 0) {
+        try {
+          const r = await listBranches()
+          const list = r.data || []
+          const cards: CardItem[] = list.map((b: any) => ({ id: String(b.id), title: b.name, subtitle: b.address || '', badge: b.is_active !== false ? '营业中' : '已下架' }))
+          setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'card-list', cards, time: nowTime() }])
+        } catch (e) { /* silent */ }
+      } else if (options.length > 0) {
+        const cards: CardItem[] = options.map((o: ChatOption) => ({ id: String(o.id || o.title), title: o.title, subtitle: o.subtitle || '', badge: o.badge }))
+        setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'card-list', cards, time: nowTime() }])
+      }
+    } catch (e: any) {
+      console.error('chat error', e)
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: '网络错误，请重试', error: true } : m))
+    } finally {
+      setStreamState('idle'); setStreamingMsgId(null)
+    }
   }, [])
 
   const handleStop = () => { stopRef.current = true }
