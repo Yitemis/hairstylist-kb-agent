@@ -13,6 +13,9 @@ agentscope>=0.8.0
 fastapi>=0.104.0
 uvicorn>=0.24.0
 python-multipart>=0.0.6
+n# --- 缓存 ---
+# Redis (生产缓存) - 可选, 没装则 fallback 到内存 LRU
+redis>=5.0.0
 
 # --- 向量库（生产版，独立部署 Milvus） ---
 # 生产环境向量检索引擎，支持大规模向量存储与 ANN 检索

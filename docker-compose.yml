@@ -45,6 +45,20 @@ services:
       - milvus_data:/var/lib/milvus
     restart: unless-stopped
 
+  # Redis (缓存)
+  redis:
+    image: redis:7-alpine
+    container_name: hairstylist-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - hairstylist-net
+    restart: unless-stopped
+
+
 volumes:
   qdrant_data:
   milvus_data:

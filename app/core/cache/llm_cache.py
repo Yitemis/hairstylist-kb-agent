@@ -81,19 +81,51 @@ def generate_idempotency_key(user_id: int, message: str, session_id: Optional[st
 # 全局实例
 # ===================================================================
 
-_llm_cache: LRUCache | None = None
-_idempotency_cache: LRUCache | None = None
+_llm_cache = None
+_idempotency_cache = None
 
 
-def get_llm_cache() -> LRUCache:
+def _get_backend():
+    """选择 cache backend: REDIS_URL 设了用 Redis, 否则 LRU (fallback)。"""
+    import os
+    if os.environ.get("REDIS_URL"):
+        try:
+            from app.core.cache.redis_cache import RedisCache
+            return "redis"
+        except ImportError:
+            pass
+    return "lru"
+
+
+def get_llm_cache():
+    """获取 LLM 缓存 (全局单例)。"""
     global _llm_cache
     if _llm_cache is None:
-        _llm_cache = LRUCache(max_size=1000, ttl_seconds=3600)  # 1h
+        backend = _get_backend()
+        if backend == "redis":
+            from app.core.cache.redis_cache import RedisCache, get_redis_url
+            _llm_cache = RedisCache(
+                redis_url=get_redis_url(),
+                prefix="hairstylist:llm",
+                default_ttl=3600,  # 1h
+            )
+        else:
+            _llm_cache = LRUCache(max_size=1000, ttl_seconds=3600)
     return _llm_cache
 
 
-def get_idempotency_cache() -> LRUCache:
+def get_idempotency_cache():
+    """获取幂等缓存 (全局单例)。"""
     global _idempotency_cache
     if _idempotency_cache is None:
-        _idempotency_cache = LRUCache(max_size=10000, ttl_seconds=86400)  # 24h
+        backend = _get_backend()
+        if backend == "redis":
+            from app.core.cache.redis_cache import RedisCache, get_redis_url
+            _idempotency_cache = RedisCache(
+                redis_url=get_redis_url(),
+                prefix="hairstylist:idem",
+                default_ttl=86400,  # 24h
+            )
+        else:
+            _idempotency_cache = LRUCache(max_size=10000, ttl_seconds=86400)
     return _idempotency_cache
