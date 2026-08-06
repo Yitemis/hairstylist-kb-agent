@@ -570,6 +570,64 @@ export async function getRagStats(tenantId?: string): Promise<{
   }>(url)
   return r.data
 }
+
+
+// ====================================================================
+// 订单 (Booking)
+// ====================================================================
+
+export interface OrderCreate {
+  branch_id?: number
+  service_id?: number
+  service_type: string
+  stylist_id: number
+  appointment_date: string  // YYYY-MM-DD
+  appointment_time: string  // HH:MM
+  duration_minutes?: number
+  total_price?: number
+  customer_phone: string
+  customer_name?: string
+  address?: string
+  note?: string
+  service_details?: string
+}
+
+export async function createOrder(body: OrderCreate): Promise<any> {
+  const r = await request<any>('/api/orders', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return r.data || r
+}
+
+export interface AvailableSlot {
+  date: string
+  time: string
+  stylist_id: number
+  stylist_name: string
+  available: boolean
+}
+
+export async function getAvailableSlots(branchId: number, stylistId: number, date: string): Promise<AvailableSlot[]> {
+  // 后端无此端点 → 临时从后端查 orders 表 + 默认时间
+  // 借用 orders 列表查已占时段
+  const r = await request<{ orders: any[] }>(`/api/orders?branch_id=${branchId}&date=${date}`)
+  const orders = r.data?.orders || (Array.isArray(r.data) ? r.data : [])
+  const taken = new Set(orders.map((o: any) => o.appointment_time))
+  // 默认时段 9-21
+  const slots: AvailableSlot[] = []
+  for (let h = 9; h < 21; h++) {
+    for (const m of [':00', ':30']) {
+      const t = `${String(h).padStart(2, '0')}${m}`
+      if (!taken.has(t)) {
+        slots.push({ date, time: t, stylist_id: stylistId, stylist_name: '', available: true })
+      }
+    }
+  }
+  return slots
+}
+
+
 export default {
   registerCustomer,
   loginCustomer,
@@ -579,6 +637,8 @@ export default {
   listServices,
   listMyOrders,
   getOrderDetail,
+  createOrder,
+  getAvailableSlots,
   adminListOrders,
   adminUpdateOrderStatus,
   adminCreateBranch,

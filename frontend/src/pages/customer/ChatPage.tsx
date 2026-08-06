@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getUser, clearAuth } from '../../utils/auth'
-import { sendChat, listBranches, type ChatOption } from '../../utils/api'
+import { sendChat, listBranches, listStylists, createOrder, getAvailableSlots, type ChatOption } from '../../utils/api'
 import { showToast } from '../../utils/toast'
 
 /* ── Types ─────────────────────────────────────────── */
@@ -297,29 +297,97 @@ export default function CustomerChatPage() {
 
   const handleCardSelect = async (card: CardItem) => {
     if (streamState !== 'idle') return
+    const u = getUser()
+    const userId = (u as any)?.id || parseInt(localStorage.getItem('user_id') || '1')
+
     if (step === 'branch') {
+      // 选分店 → 调 listStylists(branch_id) 真实 API
       setSelectedBranch(card)
       setMessages(prev => [...prev, { id: makeId(), role: 'user', type: 'text', text: `选择「${card.title}」`, time: nowTime() }])
       setStep('stylist')
-      await streamAiReply(2, STYLISTS)
+      setStreamState('thinking')
+      try {
+        const r: any = await listStylists(Number(card.id))
+        const list: any[] = r.data || (Array.isArray(r) ? r : [])
+        const cards: CardItem[] = list.map((s) => ({ id: String(s.id), title: s.name, subtitle: s.specialties || '', badge: s.is_active !== false ? '在岗' : '休息' }))
+        setMessages(prev => [...prev,
+          { id: makeId(), role: 'ai', type: 'text', time: nowTime(), text: `${card.title} 共有 ${cards.length} 位发型师：` },
+          { id: makeId(), role: 'ai', type: 'card-list', time: nowTime(), cards: cards.length > 0 ? cards : [{ id: '0', title: '暂无可用发型师', subtitle: '请联系门店', badge: '请稍后' }] },
+        ])
+      } catch (e) {
+        setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'text', time: nowTime(), text: `查询发型师失败: ${(e as any)?.message}` }])
+      } finally {
+        setStreamState('idle')
+      }
     } else if (step === 'stylist') {
+      // 选发型师 → 调 getAvailableSlots 真实 API
       setMessages(prev => [...prev, { id: makeId(), role: 'user', type: 'text', text: `选择「${card.title}」`, time: nowTime() }])
       setStep('time')
       setStreamState('thinking')
-      await new Promise(r => setTimeout(r, 600))
-      setStreamState('idle')
-      setMessages(prev => [...prev,
-        { id: makeId(), role: 'ai', type: 'text', time: nowTime(), thinking: '正在查询该发型师本周末的可用档期...', text: `${card.title} 本周末可用时间段：`, stats: { tokens: 18, ms: 620 } },
-        { id: makeId(), role: 'ai', type: 'card-list', time: nowTime(), cards: [
-          { id: 't1', title: '7月5日 (周六) 10:00', subtitle: selectedBranch?.title || '', badge: '可预约' },
-          { id: 't2', title: '7月5日 (周六) 14:00', subtitle: selectedBranch?.title || '', badge: '可预约' },
-          { id: 't3', title: '7月6日 (周日) 11:00', subtitle: selectedBranch?.title || '', badge: '仅剩1位' },
-        ]},
-      ])
+      try {
+        const branchId = selectedBranch ? Number(selectedBranch.id) : 0
+        const stylistId = Number(card.id)
+        // 查下个周末的可用时段
+        const now = new Date()
+        const nextSat = new Date(now)
+        nextSat.setDate(now.getDate() + (6 - now.getDay()))
+        const dateStr = nextSat.toISOString().slice(0, 10)
+        const slots = await getAvailableSlots(branchId, stylistId, dateStr)
+        // 拼接周末两天
+        const nextSun = new Date(nextSat)
+        nextSun.setDate(nextSat.getDate() + 1)
+        const sunStr = nextSun.toISOString().slice(0, 10)
+        const sunSlots = await getAvailableSlots(branchId, stylistId, sunStr)
+        const allSlots = [...slots.map(s => `${s.time}`), ...sunSlots.map(s => `${s.time}`)]
+        // 取前 8 个时段
+        const picked = allSlots.slice(0, 8)
+        const cards: CardItem[] = picked.map((t, i) => {
+          const isSat = i < slots.length
+          return {
+            id: `${isSat ? dateStr : sunStr} ${t}`,
+            title: `${isSat ? dateStr : sunStr} ${t}`,
+            subtitle: card.title + (isSat ? ' (周六)' : ' (周日)'),
+            badge: i < 4 ? '可预约' : '剩 1 位'
+          }
+        })
+        setMessages(prev => [...prev,
+          { id: makeId(), role: 'ai', type: 'text', time: nowTime(), text: `${card.title} 本周末可预约时段（每 30 分钟）` },
+          { id: makeId(), role: 'ai', type: 'card-list', time: nowTime(), cards: cards.length > 0 ? cards : [{ id: '0', title: '暂无可预约时段', subtitle: '请明天再试', badge: '' }] },
+        ])
+      } catch (e) {
+        setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'text', time: nowTime(), text: `查询档期失败: ${(e as any)?.message}` }])
+      } finally {
+        setStreamState('idle')
+      }
     } else if (step === 'time') {
+      // 选时段 → 调 createOrder 真实 API
       setMessages(prev => [...prev, { id: makeId(), role: 'user', type: 'text', text: `选择「${card.title}」`, time: nowTime() }])
       setStep('done')
-      await streamAiReply(0)
+      setStreamState('thinking')
+      try {
+        // 解析 "YYYY-MM-DD HH:MM" 格式
+        const [date, time] = (card.id || '').split(' ')
+        const u2 = getUser()
+        const phone = u2?.phone || '13800000001'
+        const customerName = u2?.name || '顾客'
+        const r: any = await createOrder({
+          branch_id: selectedBranch ? Number(selectedBranch.id) : 0,
+          stylist_id: Number((card.id || '0').split(' ')[0]) || 0,
+          service_type: '烫发',
+          appointment_date: date || new Date().toISOString().slice(0, 10),
+          appointment_time: time || '10:00',
+          customer_phone: phone,
+          customer_name: customerName,
+        })
+        const order = r.data || r
+        setMessages(prev => [...prev,
+          { id: makeId(), role: 'ai', type: 'text', time: nowTime(), text: `✅ 预约成功！订单号: ${order.order_no || order.id || '已生成'}（${date} ${time}）` },
+        ])
+      } catch (e) {
+        setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'text', time: nowTime(), text: `预约失败: ${(e as any)?.response?.data?.detail || (e as any)?.message || '请重试'}` }])
+      } finally {
+        setStreamState('idle')
+      }
     }
   }
 
@@ -328,7 +396,6 @@ export default function CustomerChatPage() {
 
   return (
     <div className="mobile-shell" style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f8fafc', position: 'relative' }}>
-      <style>{`@keyframes blink-cur{0%,100%{opacity:1}50%{opacity:0}}`}</style>
 
       {/* Drawer overlay */}
       {drawerOpen && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 30 }} onClick={() => setDrawerOpen(false)} />}
