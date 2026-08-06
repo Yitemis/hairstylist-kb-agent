@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import HitlConfirm from '../../components/HitlConfirm'
 import { showToast } from '../../utils/toast'
+import { listUserFacts, deleteUserFact, UserFact } from '../../utils/api'
 
 type MemoryCategory = 'person' | 'location' | 'preference'
 

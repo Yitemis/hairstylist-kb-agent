@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
+import { getArchiveStats, triggerArchive } from '../../utils/api'
 import HitlConfirm from '../../components/HitlConfirm'
 
 type ArchiveStatus = 'success' | 'failed'
@@ -39,10 +40,21 @@ function StatCard({ icon, label, value, sub, accent }: { icon: string; label: st
 }
 
 export default function ArchivePage() {
+    const [confirm, setConfirm] = useState(false)
+  const [stats, setStats] = useState(null)
   const [archiving, setArchiving] = useState(false)
-  const [confirm, setConfirm] = useState(false)
-  const [page, setPage] = useState(1)
+  useEffect(() => { getArchiveStats().then(setStats).catch(()=>{}) }, [])
+  async function doArchive() {
+    setArchiving(true)
+    try {
+      const r = await triggerArchive()
+      showToast(`已归档 ${r.deleted_chat} 条消息, ${r.deleted_orders} 条订单`, "success")
+      setStats(await getArchiveStats())
+    } catch (e) { showToast(e.message || "归档失败", "error") }
+    setArchiving(false)
+  }
 
+  const [page, setPage] = useState(1)
   const totalPages = Math.ceil(RECORDS.length / PAGE_SIZE)
   const paged = RECORDS.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
