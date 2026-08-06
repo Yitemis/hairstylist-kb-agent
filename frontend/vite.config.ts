@@ -37,7 +37,7 @@ export default defineConfig(({ mode }) => {
       // 代理 /api 请求到后端 FastAPI
       proxy: {
         '/api': {
-          target: 'http://localhost:8000',
+          target: 'http://localhost:8001',
           changeOrigin: true,
         },
       },

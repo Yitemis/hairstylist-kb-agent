@@ -413,3 +413,40 @@ def reset_state():
     """Reset module state (for tests)."""
     global _milvus_store
     _milvus_store = None
+
+
+async def get_knowledge_stats(tenant_id: str = None) -> dict:
+    """获取知识库统计信息 (监控面板用)。
+    Returns: {tenant_id, document_count, parent_chunk_count, milvus_collection}
+    """
+    from sqlalchemy import select, func
+    from app.db.models import Document, ParentChunk
+    from app.db.session import async_session_maker
+
+    async with async_session_maker() as s:
+        if tenant_id:
+            doc_q = select(func.count(Document.id)).where(Document.tenant_id == tenant_id)
+            chunk_q = select(func.count(ParentChunk.id)).where(ParentChunk.tenant_id == tenant_id)
+        else:
+            doc_q = select(func.count(Document.id))
+            chunk_q = select(func.count(ParentChunk.id))
+        doc_count = (await s.execute(doc_q)).scalar() or 0
+        chunk_count = (await s.execute(chunk_q)).scalar() or 0
+
+    milvus_stats = {}
+    try:
+        from app.rag.milvus_store import MilvusStore
+        ms = MilvusStore()
+        milvus_stats = {
+            "collection": ms.collection,
+            "dim": ms.dim,
+        }
+    except Exception:
+        pass
+
+    return {
+        "tenant_id": tenant_id or "all",
+        "document_count": doc_count,
+        "parent_chunk_count": chunk_count,
+        "milvus": milvus_stats,
+    }

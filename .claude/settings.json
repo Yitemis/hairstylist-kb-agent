@@ -9,7 +9,12 @@
       "Bash(export PIP_TMPDIR=./tmp/pip_tmp)",
       "Bash(export TEMP=./tmp/agent_tmp)",
       "Bash(export TMP=./tmp/agent_tmp)",
-      "Bash(export PYTHONIOENCODING=utf-8)"
+      "Bash(export PYTHONIOENCODING=utf-8)",
+      "Bash(powershell.exe -NoProfile -Command 'Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }')",
+      "Bash(sleep 3)",
+      "Bash(nohup uvicorn app.server.api:app --host 0.0.0.0 --port 8001)",
+      "Bash(echo \"PID $!\")",
+      "Bash(sleep 8)"
     ],
     "additionalDirectories": [
       "\\tmp",

@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -41,6 +41,7 @@ from app.core.config import (
     server_config,
     auth_config,
 )
+from app.core.cache.helpers import cache_get, cache_set
 from contextlib import asynccontextmanager
 
 from app.db.session import init_db
@@ -277,7 +278,7 @@ async def rag_search(
     enable_self_rag: bool = True,
 ) -> dict:
     """RAG 检索接口（支持多租户 + Self-RAG 优化）。"""
-    from app.rag.engine import retrieve, self_rag_retrieve
+    from app.rag.v2_engine import retrieve
 
     if enable_self_rag:
         result = await self_rag_retrieve(query, tenant_id=tenant_id, top_k=top_k)
@@ -312,7 +313,7 @@ async def rag_index_document(
     category: str = 'general',
 ) -> dict:
     """API 方式索引单个文档。"""
-    from app.rag.engine import index_document
+    from app.rag.v2_engine import index_document
     return await index_document(document_id, content, filename, tenant_id, category)
 
 
@@ -344,7 +345,7 @@ async def rag_upload_document(
             category=category,
         )
         # 把 parent chunks 拼起来索引
-        from app.rag.engine import index_document
+        from app.rag.v2_engine import index_document
         total_chunks = 0
         for p in parents:
             for c in p.child_chunks:
@@ -391,7 +392,7 @@ async def rag_list_chunks(
 
     返回每个 chunk 的完整 payload（含 content）和元数据。
     """
-    from app.rag.engine import _get_qdrant_client
+    # from app.rag.engine import _get_qdrant_client  # removed: Qdrant deprecated
     from app.core.config import vector_store_config
     from qdrant_client import models as qdrant_models
 
@@ -470,7 +471,7 @@ async def rag_test_recall(
           "hits": [{ "rank": 1, "score": 0.95, "content": "...", "filename": "...", "document_id": "..." }, ...]
         }
     """
-    from app.rag.engine import retrieve, self_rag_retrieve
+    from app.rag.v2_engine import retrieve
     from app.core.config import vector_store_config
 
     if not query.strip():
@@ -522,7 +523,7 @@ async def rag_test_recall(
 @app.get('/api/rag/documents', summary='列出已索引的文档')
 async def rag_list_documents(tenant_id: str | None = None) -> dict:
     """列出所有已索引的文档（按 document_id 分组，含 chunk 数）。"""
-    from app.rag.engine import _get_qdrant_client
+    # from app.rag.engine import _get_qdrant_client  # removed: Qdrant deprecated
     from app.core.config import vector_store_config
     from qdrant_client import models as qdrant_models
 
@@ -572,7 +573,9 @@ async def rag_list_documents(tenant_id: str | None = None) -> dict:
 
 
 @app.post("/api/chat", summary="对话接口（支持多模态 + role 隔离 + 幂等）")
-async def chat(request: Request, body: dict) -> dict:
+async def chat(body: dict = None, request: Request = None) -> dict:
+    if body is None:
+        body = {}
     """对话接口（C 端 + 商家共用，按 role 自动隔离）。
 
     幂等机制：
@@ -590,12 +593,13 @@ async def chat(request: Request, body: dict) -> dict:
 
     # 幂等检查（避免重复扣费 + 重复处理）
     from app.core.cache.llm_cache import get_idempotency_cache, generate_idempotency_key
+    from app.core.cache.helpers import cache_get, cache_set
     from app.core.metrics import idempotency_hits_total
     idem_key = body.get("idempotency_key") or generate_idempotency_key(
         user_id=user_id, message=message, session_id=session_id
     )
     idem_cache = get_idempotency_cache()
-    cached_result = idem_cache.get(idem_key)
+    cached_result = await cache_get(idem_cache, idem_key)
     if cached_result is not None:
         idempotency_hits_total.inc()
         logger.info("Idempotency hit (key=%s) for user=%d", idem_key, user_id)
@@ -661,7 +665,7 @@ async def chat(request: Request, body: dict) -> dict:
         # 成功才缓存（避免缓存错误结果）
         if "result" in dir() and result is not None:
             try:
-                idem_cache.set(idem_key, result)
+                await cache_set(idem_cache, idem_key, result)
             except Exception:
                 pass
 
@@ -789,7 +793,7 @@ async def _chat_handler(body: dict, ctx) -> dict:
         system = "你是美发行业专业顾问，简洁、专业地回答用户问题。"
 
         # 【RAG 中间件】自动检索知识库注入（借鉴 AgentScope RAGMiddleware）
-        from app.rag.engine import retrieve as rag_retrieve
+        from app.rag.v2_engine import retrieve as rag_retrieve
         try:
             t0 = time.time()
             rag_result = await rag_retrieve(query=message, top_k=3)
