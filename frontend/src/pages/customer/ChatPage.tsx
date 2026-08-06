@@ -373,7 +373,7 @@ export default function CustomerChatPage() {
         const r: any = await createOrder({
           branch_id: selectedBranch ? Number(selectedBranch.id) : 0,
           stylist_id: Number((card.id || '0').split(' ')[0]) || 0,
-          service_type: '烫发',
+          service_type: '美发',
           appointment_date: date || new Date().toISOString().slice(0, 10),
           appointment_time: time || '10:00',
           customer_phone: phone,
