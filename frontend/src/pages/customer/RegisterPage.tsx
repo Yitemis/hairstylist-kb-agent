@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { saveAuth } from '../../utils/auth'
 import { showToast } from '../../utils/toast'
 
+import { registerCustomer } from '../../utils/api'
 export default function CustomerRegisterPage() {
   const nav = useNavigate()
   const [name, setName] = useState('')
@@ -12,15 +13,25 @@ export default function CustomerRegisterPage() {
   const [loading, setLoading] = useState(false)
 
   const handleRegister = async () => {
-    if (!name.trim()) { showToast('请输入姓名', 'error'); return }
+    if (!name.trim()) { showToast('请输入昵称', 'error'); return }
     if (phone.length !== 11) { showToast('请输入 11 位手机号', 'error'); return }
     if (password.length < 6) { showToast('密码至少 6 位', 'error'); return }
     setLoading(true)
     await new Promise(r => setTimeout(r, 1000))
     setLoading(false)
-    saveAuth('mock_customer_token_' + Date.now(), { name, phone, role: 'customer' })
-    showToast('注册成功', 'success')
-    nav('/customer/chat')
+    try {
+      const res: any = await registerCustomer({ name, phone, password })
+      const data = res.data || res
+      if (!data?.access_token) {
+        showToast(res.message || data?.detail || '注册失败', 'error')
+        return
+      }
+      saveAuth(data.access_token, data.user || { name, phone, role: 'customer' })
+      showToast('注册成功', 'success')
+      nav('/customer/chat')
+    } catch (e: any) {
+      showToast(e?.detail || e?.message || '注册失败', 'error')
+    }
   }
 
   return (
@@ -43,10 +54,10 @@ export default function CustomerRegisterPage() {
         <div className="card p-6">
           {/* Name */}
           <div className="form-group">
-            <label className="form-label">你的姓名</label>
+            <label className="form-label">昵称</label>
             <input
               className="input-field"
-              placeholder="请输入你的姓名"
+              placeholder="请输入昵称"
               value={name}
               onChange={e => setName(e.target.value)}
             />
