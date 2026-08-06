@@ -7,9 +7,16 @@
 - 每个测试清空 Milvus + PG（避免测试间污染）
 """
 import asyncio
+import os
 import sys
 
 import pytest
+
+# 测试默认用 PostgreSQL（避免 SQLite schema 不一致）
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql+asyncpg://hair:hair123@localhost:5432/hairstylist",
+)
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -90,3 +97,12 @@ def seed_business_data(event_loop):
     except Exception as e:
         print(f"Seed business data failed: {e}")
     yield
+
+
+# 全局 mock embedding (避免 API 欠费)
+from unittest.mock import patch as _patch
+
+# Test 文件通过 _patch_embedding 启停
+# 这里只是声明一个标记
+import os
+os.environ.setdefault("PYTEST_USE_MOCK_EMBED", "1")

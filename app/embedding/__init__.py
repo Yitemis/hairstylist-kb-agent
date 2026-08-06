@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """自定义 Embedding 适配器。"""
+from pathlib import Path
+# 关键: 在导入 router (含全局 cache) 之前先 load .env
+# 否则 router 初始化时 env 为空, 后续 get_model_router() 返回空 endpoints
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent.parent / ".env", override=True)
+
 from .ark_vision_embedding import ArkVisionEmbeddingModel
 from .siliconflow_text_embedding import SiliconFlowTextEmbedding
 from .router import Capability, get_model_router, get_endpoint

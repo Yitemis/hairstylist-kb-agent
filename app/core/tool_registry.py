@@ -130,7 +130,7 @@ registry.register(
 # 对话式下单工具集（C端用户预约）
 # ------------------------------------------------------------------
 
-from app.agent_tools.order_tools import (
+from app.core.tools.order_tools import (
     confirm_order,
     create_draft_order,
     list_branches,

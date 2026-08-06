@@ -65,7 +65,7 @@ class MilvusStore:
             collection_name=self.collection,
             dimension=self.dim,
             metric_type=self.metric_type,
-            auto_id=False,
+            auto_id=True,
         )
         # 建 HNSW 索引（生产推荐）
         # pymilvus 2.x: create_collection 已经建了默认 AUTOINDEX
@@ -75,13 +75,12 @@ class MilvusStore:
 
     def insert(self, vectors: List[List[float]], payloads: List[dict]) -> List[int]:
         """插入子块（payload 必含 parent_id / tenant_id / document_id / filename）。"""
-        import uuid as _uuid
         self.ensure_collection()
         client = self._get_client()
         data = []
         for vec, p in zip(vectors, payloads):
-            # auto_id=False 时必须自己生成 id
-            row = {"id": int(_uuid.uuid4().int >> 96) & 0x7FFFFFFFFFFFFFFF, "vector": vec}
+            # auto_id=True 时 Milvus 自动分配 id
+            row = {"vector": vec}
             row.update({
                 PARENT_ID_KEY: str(p.get(PARENT_ID_KEY, "")),
                 TENANT_ID_KEY: str(p.get(TENANT_ID_KEY, "default")),

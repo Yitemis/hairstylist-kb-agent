@@ -63,10 +63,22 @@ class SiliconFlowTextEmbedding(EmbeddingModelBase[str | TextBlock]):
             max_retries=max_retries,
             retry_delay=retry_delay,
         )
-        self._api_key = credential.api_key
+        # SecretStr 兼容: pydantic 会把 str 当 SecretStr, f-string 会 mask
+        # 必须调用 .get_secret_value() 拿真实 key
+        api_key = credential.api_key
+        if hasattr(api_key, "get_secret_value"):
+            api_key = api_key.get_secret_value()
+        self._api_key = api_key
         # base_url 通常是 https://api.siliconflow.cn/v1
-        base = (credential.base_url or "https://api.siliconflow.cn/v1").rstrip("/")
-        self._full_url = f"{base}/embeddings"
+        # 但 .env 也可能写 https://api.siliconflow.cn/v1/embeddings (避免双拼)
+        base_url = credential.base_url
+        if hasattr(base_url, "get_secret_value"):
+            base_url = base_url.get_secret_value()
+        base = (base_url or "https://api.siliconflow.cn/v1").rstrip("/")
+        if base.endswith("/embeddings"):
+            self._full_url = base
+        else:
+            self._full_url = f"{base}/embeddings"
         self._model = model
         self._dimensions = dimensions
         self._max_retries = max_retries
@@ -86,7 +98,9 @@ class SiliconFlowTextEmbedding(EmbeddingModelBase[str | TextBlock]):
             "model": self._model,
             "input": texts,
         }
-        if self._dimensions:
+        # BAAI/bge-large-zh-v1.5 不支持 dimensions 参数 (会 400)
+        # 切换模型时记得测试兼容性
+        if self._dimensions and "bge-large" not in self._model.lower():
             payload["dimensions"] = self._dimensions
 
         headers = {
@@ -107,9 +121,11 @@ class SiliconFlowTextEmbedding(EmbeddingModelBase[str | TextBlock]):
                 # 解析 OpenAI 格式
                 embeddings = [item["embedding"] for item in data.get("data", [])]
                 usage_data = data.get("usage", {})
+                # EmbeddingUsage signature: (time, tokens, type)
                 usage = EmbeddingUsage(
-                    input_tokens=usage_data.get("prompt_tokens", 0),
-                    output_tokens=0,
+                    time=0.0,
+                    tokens=usage_data.get("prompt_tokens", 0),
+                    type="embedding",
                 )
                 return EmbeddingResponse(embeddings=embeddings, usage=usage)
             except Exception as e:

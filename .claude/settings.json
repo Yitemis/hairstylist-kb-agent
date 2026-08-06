@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat > *)",
+      "Bash(touch e:/hairstylist-kb-agent/scripts/update_plan.py *)",
+      "Bash(python3)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('e:/hairstylist-kb-agent/app/rag/parsers/mineru_backends.py', encoding='utf-8'\\).read\\(\\)\\); print\\('SYNTAX OK'\\)\")",
+      "Bash(export TMPDIR=./tmp/agent_tmp)",
+      "Bash(export PIP_TMPDIR=./tmp/pip_tmp)",
+      "Bash(export TEMP=./tmp/agent_tmp)",
+      "Bash(export TMP=./tmp/agent_tmp)",
+      "Bash(export PYTHONIOENCODING=utf-8)"
+    ],
+    "additionalDirectories": [
+      "\\tmp",
+      "e:\\hairstylist-kb-agent\\scripts"
+    ]
+  }
+}

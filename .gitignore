@@ -97,3 +97,6 @@ data/start_milvus_wsl.sh
 *.swp
 *.swo
 *~
+
+# 临时目录 (开发用)
+tmp/

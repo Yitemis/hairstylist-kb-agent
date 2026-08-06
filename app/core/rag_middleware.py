@@ -41,7 +41,7 @@ class RAGMiddleware:
         logger.debug("RAG query rewrite: %s -> %s", message[:30], rewritten_query[:30])
 
         # 2. 向量检索
-        from app.rag.engine import retrieve
+        from app.rag.v2_engine import retrieve, index_document
         try:
             t0 = time.time()
             result = await retrieve(

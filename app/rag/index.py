@@ -10,7 +10,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from app.rag.engine import get_knowledge_stats, index_document
+from app.rag.v2_engine import get_knowledge_stats, index_document
 
 
 async def _index_file(path: Path, tenant_id: str) -> dict:

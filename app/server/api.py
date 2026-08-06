@@ -45,7 +45,7 @@ from contextlib import asynccontextmanager
 
 from app.db.session import init_db
 from app.db.migration import run_migrations_on_startup, get_current_revision, get_head_revision
-from app.domain.safety import safety_filter
+from app.safety.domain_safety import safety_filter
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ async def health_check() -> dict:
 
     # 2. Vector store
     try:
-        from app.rag.engine import get_knowledge_stats
+        from app.rag.v2_engine import get_knowledge_stats
         stats = await get_knowledge_stats()
         checks["vector_store"] = {"status": "ok", "total_chunks": stats.get("total_chunks", 0)}
     except Exception as e:
@@ -371,7 +371,7 @@ async def rag_upload_document(
 @app.get('/api/rag/stats')
 async def rag_stats(tenant_id: str | None = None) -> dict:
     """知识库统计接口（监控面板用）。"""
-    from app.rag.engine import get_knowledge_stats
+    from app.rag.v2_engine import get_knowledge_stats
     return await get_knowledge_stats(tenant_id)
 
 
@@ -1343,7 +1343,7 @@ async def extract_facts_endpoint(
 
 async def _handle_booking_flow(message: str, user_id: int, session_id: str):
     """根据用户消息和当前订单状态，调度工具返回文案。"""
-    from app.agent_tools.order_tools import (
+    from app.core.tools.order_tools import (
         confirm_order, create_draft_order, list_branches,
         list_stylists, recommend_services, update_order_fields,
     )
@@ -1711,7 +1711,7 @@ async def _continue_editing(current_order) -> tuple[str, list[dict] | None]:
     """继续编辑：智能列出当前草稿还缺什么字段，并返回对应选项。"""
     from app.db.session import async_session_maker
     from app.db.models import Order
-    from app.agent_tools.order_tools import list_branches, list_stylists, recommend_services
+    from app.core.tools.order_tools import list_branches, list_stylists, recommend_services
 
     if current_order is None:
         return ('你没有进行中的订单。请先说"我要预约"或"想烫头发"等开始下单。', None)
