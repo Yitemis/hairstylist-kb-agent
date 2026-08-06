@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { saveAuth } from '../../utils/auth'
+import { loginCustomer } from '../../utils/api'
 import { showToast } from '../../utils/toast'
 
 export default function CustomerLoginPage() {
@@ -14,11 +15,21 @@ export default function CustomerLoginPage() {
     if (phone.length !== 11) { showToast('请输入 11 位手机号', 'error'); return }
     if (password.length < 6) { showToast('密码至少 6 位', 'error'); return }
     setLoading(true)
-    await new Promise(r => setTimeout(r, 900))
-    setLoading(false)
-    saveAuth('mock_customer_token_' + Date.now(), { name: '李美华', phone, role: 'customer' })
-    showToast('登录成功', 'success')
-    nav('/customer/chat')
+    try {
+      const res: any = await loginCustomer({ phone, password })
+      const data = res.data || res
+      if (!data?.access_token) {
+        showToast(res.message || data?.detail || '登录失败', 'error')
+        return
+      }
+      saveAuth(data.access_token, data.user || { name: '用户', phone, role: 'customer' })
+      showToast('登录成功', 'success')
+      nav('/customer/chat')
+    } catch (e: any) {
+      showToast(e?.detail || e?.message || '登录失败', 'error')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

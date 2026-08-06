@@ -216,9 +216,12 @@ export default function CustomerChatPage() {
     const userId = (user as any)?.id || parseInt(localStorage.getItem('user_id') || '1')
     const finalSessionId = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').session_id || 'default' } catch { return 'default' } })()
     try {
+      console.log('[ChatPage] sendChat start, userId=' + userId + ', sessionId=' + finalSessionId)
       const resp = await sendChat(input, userId, finalSessionId)
+      console.log('[ChatPage] sendChat resp=', JSON.stringify(resp).slice(0, 200))
       const respData: any = resp.data || resp
       const inner: any = respData.data || respData
+      console.log('[ChatPage] inner=', JSON.stringify(inner).slice(0, 200))
       const answer: string = inner.answer || (typeof resp === 'string' ? resp : JSON.stringify(resp))
       const mode: string = inner.mode || 'casual'
       const options: ChatOption[] = inner.options || []
@@ -253,8 +256,9 @@ export default function CustomerChatPage() {
         setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'card-list', cards, time: nowTime() }])
       }
     } catch (e: any) {
-      console.error('chat error', e)
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: '网络错误，请重试', error: true } : m))
+      console.error('chat error details:', e?.response?.data || e?.message || e)
+      const errMsg = e?.response?.data?.detail || e?.response?.data?.message || e?.message || '网络错误'
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: '回复生成失败：' + errMsg, error: true } : m))
     } finally {
       setStreamState('idle'); setStreamingMsgId(null)
     }
