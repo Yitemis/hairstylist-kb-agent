@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getUser, clearAuth } from '../../utils/auth'
 import { sendChat, listBranches, type ChatOption } from '../../utils/api'
@@ -205,7 +205,7 @@ export default function CustomerChatPage() {
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streamState])
 
   /* SSE simulation */
-  const streamAiReply = useCallback(async (idx: number, extraCards?: CardItem[]) => {
+  const streamAiReply = async (idx: number, extraCards?: CardItem[]) => {
     stopRef.current = false
     const msgId = makeId()
     const startMs = Date.now()
@@ -229,8 +229,11 @@ export default function CustomerChatPage() {
       const resp = await sendChat(input, userId, finalSessionId)
       console.log('[ChatPage] sendChat resp=', JSON.stringify(resp).slice(0, 200))
       const respData: any = resp.data || resp
-      const inner: any = respData.data || respData
-      console.log('[ChatPage] inner=', JSON.stringify(inner).slice(0, 200))
+      const inner: any = (respData && respData.data) || respData
+      console.log('[ChatPage] resp keys=', Object.keys(resp || {}), 'inner keys=', Object.keys(inner || {}))
+      if (!inner) {
+        throw new Error('empty inner response: ' + JSON.stringify(resp).slice(0, 200))
+      }
       const answer: string = inner.answer || (typeof resp === 'string' ? resp : JSON.stringify(resp))
       const mode: string = inner.mode || 'casual'
       const options: ChatOption[] = inner.options || []
@@ -271,8 +274,7 @@ export default function CustomerChatPage() {
     } finally {
       setStreamState('idle'); setStreamingMsgId(null)
     }
-  }, [])
-
+  }
   const handleStop = () => { stopRef.current = true }
 
   const handleImageFiles = (files: FileList | null) => {
