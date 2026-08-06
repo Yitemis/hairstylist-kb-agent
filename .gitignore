@@ -100,3 +100,6 @@ data/start_milvus_wsl.sh
 
 # 临时目录 (开发用)
 tmp/
+
+# 临时文件
+*.tmp
