@@ -12,11 +12,16 @@ import CustomerOrderDetailPage from './pages/customer/OrderDetailPage'
 // Admin pages
 import AdminLoginPage from './pages/admin/AdminLoginPage'
 import KnowledgePage from './pages/admin/KnowledgePage'
-import KnowledgeBasePage from './pages/admin/KnowledgeBasePage'
 import OrderManagePage from './pages/admin/OrderManagePage'
 import BranchManagePage from './pages/admin/BranchManagePage'
 import StylistManagePage from './pages/admin/StylistManagePage'
 import ServiceManagePage from './pages/admin/ServiceManagePage'
+import RagEvalPage from './pages/admin/RagEvalPage'
+import ArchivePage from './pages/admin/ArchivePage'
+import MonitorPage from './pages/admin/MonitorPage'
+
+// Customer extra pages
+import MemoryPage from './pages/customer/MemoryPage'
 
 /* ── Guards ─────────────────────────────────────────────── */
 function CustomerGuard({ children }: { children: React.ReactNode }) {
@@ -26,7 +31,7 @@ function CustomerGuard({ children }: { children: React.ReactNode }) {
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
   if (!getToken()) return <Navigate to="/admin/login" replace />
-  if (getRole() !== 'admin' && getRole() !== 'worker') return <Navigate to="/admin/login" replace />
+  if (getRole() !== 'admin') return <Navigate to="/admin/login" replace />
   return <>{children}</>
 }
 
@@ -34,8 +39,8 @@ function AdminGuard({ children }: { children: React.ReactNode }) {
 function RootRedirect() {
   const token = getToken()
   const role = getRole()
-  if (!token) return <Navigate to="/" replace />
-  if (role === 'admin' || role === 'worker') return <Navigate to="/admin/knowledge" replace />
+  if (!token) return <Navigate to="/customer/login" replace />
+  if (role === 'admin') return <Navigate to="/admin/knowledge" replace />
   return <Navigate to="/customer/chat" replace />
 }
 
@@ -122,6 +127,10 @@ function DemoLanding() {
               { href: '/admin/branches', label: '分店管理' },
               { href: '/admin/stylists', label: '发型师管理' },
               { href: '/admin/services', label: '服务项目' },
+              { href: '/admin/rag-eval', label: 'RAG 评估' },
+              { href: '/admin/archive',  label: '数据归档' },
+              { href: '/admin/monitor',  label: '实时监控' },
+              { href: '/customer/memory', label: '我的记忆' },
             ].map(l => (
               <a key={l.href} href={l.href} style={{ color: '#6366f1', textDecoration: 'none', padding: '6px 10px', borderRadius: 8, background: '#f5f3ff', display: 'block', textAlign: 'center', transition: 'all 0.12s' }}
                 onMouseOver={e => { (e.target as HTMLElement).style.background = '#ede9fe' }}
@@ -147,20 +156,23 @@ export default function App() {
         <Route path="/" element={<DemoLanding />} />
 
         {/* Customer routes */}
-        <Route path="/customer/login"    element={<CustomerLoginPage />} />
-        <Route path="/customer/register" element={<CustomerRegisterPage />} />
-        <Route path="/customer/chat"     element={<CustomerGuard><CustomerChatPage /></CustomerGuard>} />
-        <Route path="/customer/orders"   element={<CustomerGuard><CustomerOrderListPage /></CustomerGuard>} />
+        <Route path="/customer/login"      element={<CustomerLoginPage />} />
+        <Route path="/customer/register"   element={<CustomerRegisterPage />} />
+        <Route path="/customer/chat"       element={<CustomerGuard><CustomerChatPage /></CustomerGuard>} />
+        <Route path="/customer/orders"     element={<CustomerGuard><CustomerOrderListPage /></CustomerGuard>} />
         <Route path="/customer/orders/:id" element={<CustomerGuard><CustomerOrderDetailPage /></CustomerGuard>} />
+        <Route path="/customer/memory"     element={<CustomerGuard><MemoryPage /></CustomerGuard>} />
 
         {/* Admin routes */}
         <Route path="/admin/login"      element={<AdminLoginPage />} />
         <Route path="/admin/knowledge"  element={<AdminGuard><KnowledgePage /></AdminGuard>} />
-        <Route path="/admin/kb"         element={<AdminGuard><KnowledgeBasePage /></AdminGuard>} />
         <Route path="/admin/orders"     element={<AdminGuard><OrderManagePage /></AdminGuard>} />
         <Route path="/admin/branches"   element={<AdminGuard><BranchManagePage /></AdminGuard>} />
         <Route path="/admin/stylists"   element={<AdminGuard><StylistManagePage /></AdminGuard>} />
         <Route path="/admin/services"   element={<AdminGuard><ServiceManagePage /></AdminGuard>} />
+        <Route path="/admin/rag-eval"   element={<AdminGuard><RagEvalPage /></AdminGuard>} />
+        <Route path="/admin/archive"    element={<AdminGuard><ArchivePage /></AdminGuard>} />
+        <Route path="/admin/monitor"    element={<AdminGuard><MonitorPage /></AdminGuard>} />
 
         {/* Fallback */}
         <Route path="*" element={<RootRedirect />} />

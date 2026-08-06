@@ -3,17 +3,9 @@ import { clearAuth, getUser } from '../../utils/auth'
 
 const NAV_ITEMS = [
   {
-    path: '/admin/kb',
-    label: '知识库管理',
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <path d="M2 3a1 1 0 0 1 1-1h5a3 3 0 0 1 3 3v11a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3zM11 5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1V5z" stroke="currentColor" strokeWidth="1.4"/>
-      </svg>
-    ),
-  },
-  {
     path: '/admin/knowledge',
     label: '知识库问答',
+    group: 'AI',
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <path d="M2 3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3z" stroke="currentColor" strokeWidth="1.4" />
@@ -60,6 +52,39 @@ const NAV_ITEMS = [
       </svg>
     ),
   },
+  {
+    path: '/admin/rag-eval',
+    label: 'RAG 质量评估',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <polyline points="2,14 6,8 10,11 14,4 16,6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="16" cy="6" r="1.5" fill="currentColor" />
+      </svg>
+    ),
+  },
+  {
+    path: '/admin/archive',
+    label: '数据归档管理',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <rect x="2" y="4" width="14" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M2 7h14" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M6 2h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M7 11h4M9 9v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    path: '/admin/monitor',
+    label: '实时监控',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <rect x="1" y="2" width="16" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+        <path d="M5 15h8M9 13v2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <path d="M4 10l2.5-4L9 9l2.5-3L14 8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -98,7 +123,26 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
         {/* Nav */}
         <nav style={{ flex: 1, padding: '12px 10px', overflowY: 'auto' }}>
-          {NAV_ITEMS.map(item => {
+          {/* Business section */}
+          <p style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, padding: '6px 12px 4px', marginBottom: 2 }}>业务管理</p>
+          {NAV_ITEMS.slice(0, 5).map(item => {
+            const active = loc.pathname === item.path
+            return (
+              <button
+                key={item.path}
+                onClick={() => nav(item.path)}
+                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: 'none', background: active ? 'rgba(99,102,241,0.18)' : 'transparent', color: active ? '#a5b4fc' : '#64748b', fontSize: 14, fontWeight: active ? 600 : 400, cursor: 'pointer', marginBottom: 2, textAlign: 'left', transition: 'all 0.12s' }}
+                onMouseOver={e => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.04)' }}
+                onMouseOut={e => { if (!active) e.currentTarget.style.background = 'transparent' }}
+              >
+                <span style={{ opacity: active ? 1 : 0.6 }}>{item.icon}</span>
+                {item.label}
+              </button>
+            )
+          })}
+          {/* System section */}
+          <p style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, padding: '14px 12px 4px', marginBottom: 2 }}>系统工具</p>
+          {NAV_ITEMS.slice(5).map(item => {
             const active = loc.pathname === item.path
             return (
               <button
@@ -169,7 +213,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             onMouseOut={e => { e.currentTarget.style.background = 'transparent' }}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M5 2H2.5a.5.5 0 0 0-.5.5v9a.5.5 0 0 .5.5H5M9 10l3-3-3-3M12 7H5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M5 2H2.5a.5.5 0 0 0-.5.5v9a.5.5 0 0 0 .5.5H5M9 10l3-3-3-3M12 7H5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             退出登录
           </button>

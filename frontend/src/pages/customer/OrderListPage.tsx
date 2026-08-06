@@ -1,16 +1,33 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { listMyOrders, type Order } from '../../utils/api'
-import { showToast } from '../../utils/toast'
 
-type OrderStatus = 'draft' | 'pending' | 'confirmed' | 'completed' | 'cancelled'
+type OrderStatus = 'draft' | 'pending' | 'confirmed' | 'done' | 'cancelled'
 
-const STATUS_MAP: Record<string, { label: string; cls: string }> = {
+interface Order {
+  id: string
+  branch: string
+  stylist: string
+  service: string
+  date: string
+  price: number
+  status: OrderStatus
+}
+
+const ALL_ORDERS: Order[] = [
+  { id: 'ORD-20250701-001', branch: '三里屯旗舰店', stylist: '陈晓磊', service: '烫发（数码烫）', date: '2025-07-05 10:00', price: 580, status: 'confirmed' },
+  { id: 'ORD-20250623-008', branch: '国贸中心店', stylist: '王芳芳', service: '剪发 + 造型', date: '2025-06-23 14:00', price: 220, status: 'done' },
+  { id: 'ORD-20250618-003', branch: '西单商场店', stylist: '刘志远', service: '染发（全头）', date: '2025-06-18 11:30', price: 460, status: 'done' },
+  { id: 'ORD-20250610-007', branch: '三里屯旗舰店', stylist: '陈晓磊', service: '护发护理', date: '2025-06-10 15:00', price: 180, status: 'cancelled' },
+  { id: 'ORD-20250701-002', branch: '国贸中心店', stylist: '王芳芳', service: '剪发', date: '2025-07-06 09:00', price: 120, status: 'pending' },
+  { id: 'ORD-20250702-001', branch: '三里屯旗舰店', stylist: '待分配', service: '烫发咨询', date: '待确定', price: 0, status: 'draft' },
+]
+
+const STATUS_MAP: Record<OrderStatus, { label: string; cls: string }> = {
   draft:     { label: '草稿',   cls: 'badge badge-draft' },
   pending:   { label: '待确认', cls: 'badge badge-pending' },
   confirmed: { label: '已确认', cls: 'badge badge-confirmed' },
-  completed: { label: '已完成', cls: 'badge badge-done' },
-  cancelled:{ label: '已取消', cls: 'badge badge-cancelled' },
+  done:      { label: '已完成', cls: 'badge badge-done' },
+  cancelled: { label: '已取消', cls: 'badge badge-cancelled' },
 }
 
 const TABS: { key: 'all' | OrderStatus; label: string }[] = [
@@ -18,37 +35,15 @@ const TABS: { key: 'all' | OrderStatus; label: string }[] = [
   { key: 'draft',     label: '草稿' },
   { key: 'pending',   label: '待确认' },
   { key: 'confirmed', label: '已确认' },
-  { key: 'completed', label: '已完成' },
+  { key: 'done',      label: '已完成' },
   { key: 'cancelled', label: '已取消' },
 ]
 
 export default function CustomerOrderListPage() {
   const nav = useNavigate()
   const [tab, setTab] = useState<'all' | OrderStatus>('all')
-  const [orders, setOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function fetchOrders() {
-      try {
-        const res = await listMyOrders()
-        if (res.code !== 0) {
-          showToast(res.message || '获取订单失败', 'error')
-          return
-        }
-        setOrders(res.data || [])
-      } catch (e) {
-        showToast('网络错误', 'error')
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchOrders()
-  }, [])
-
-  const filtered = tab === 'all'
-    ? orders
-    : orders.filter(o => o.status === tab)
+  const filtered = tab === 'all' ? ALL_ORDERS : ALL_ORDERS.filter(o => o.status === tab)
 
   return (
     <div className="mobile-shell flex flex-col min-h-screen" style={{ background: '#f8fafc' }}>
@@ -80,11 +75,7 @@ export default function CustomerOrderListPage() {
 
       {/* Orders */}
       <div className="flex-1 scrollbar-hide" style={{ overflowY: 'auto', padding: '12px 14px' }}>
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
-            <p style={{ fontSize: 15 }}>加载中...</p>
-          </div>
-        ) : filtered.length === 0 ? (
+        {filtered.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 20px', color: '#94a3b8' }}>
             <p style={{ fontSize: 40, marginBottom: 12 }}>📋</p>
             <p style={{ fontSize: 15 }}>暂无相关订单</p>
@@ -99,24 +90,24 @@ export default function CustomerOrderListPage() {
             >
               {/* Header */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>{order.order_no}</span>
-                <span className={STATUS_MAP[order.status]?.cls || STATUS_MAP.draft.cls}>{STATUS_MAP[order.status]?.label || order.status}</span>
+                <span style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>{order.id}</span>
+                <span className={STATUS_MAP[order.status].cls}>{STATUS_MAP[order.status].label}</span>
               </div>
 
               {/* Content */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1C4.8 1 3 2.8 3 5c0 3 4 8 4 8s4-5 4-8c0-2.2-1.8-4-4-4z" stroke="#6366f1" strokeWidth="1.3"/><circle cx="7" cy="5" r="1.5" stroke="#6366f1" strokeWidth="1.3"/></svg>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{order.branch_name || `分店 #${order.branch_id}`}</span>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: '#1e293b' }}>{order.branch}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 16, fontSize: 13, color: '#64748b' }}>
-                  <span>💇 {order.stylist_name || `发型师 #${order.stylist_id}`}</span>
-                  <span>✂️ {order.service_type}</span>
+                  <span>💇 {order.stylist}</span>
+                  <span>✂️ {order.service}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                  <span style={{ fontSize: 13, color: '#64748b' }}>📅 {order.appointment_date} {order.appointment_time}</span>
-                  {order.total_price && (
-                    <span style={{ fontSize: 16, fontWeight: 700, color: '#6366f1' }}>¥{order.total_price}</span>
+                  <span style={{ fontSize: 13, color: '#64748b' }}>📅 {order.date}</span>
+                  {order.price > 0 && (
+                    <span style={{ fontSize: 16, fontWeight: 700, color: '#6366f1' }}>¥{order.price}</span>
                   )}
                 </div>
               </div>

@@ -2,7 +2,7 @@ export const AUTH_KEY = 'hair_token'
 export const USER_KEY = 'hair_user'
 export const ROLE_KEY = 'hair_role'
 
-export type Role = 'customer' | 'admin' | 'worker'
+export type Role = 'customer' | 'admin'
 
 export interface UserInfo {
   name: string

@@ -1,8 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
 import AdminLayout from '../../components/admin/AdminLayout'
-import { sendChat } from '../../utils/api'
-import { showToast } from '../../utils/toast'
-import { getUser } from '../../utils/auth'
 
 /* ── Types ─────────────────────────────────────────────── */
 interface Source {
@@ -14,6 +11,34 @@ interface Message {
 interface Session {
   id: string; title: string; preview: string; time: string
 }
+
+/* ── Data ───────────────────────────────────────────────── */
+const SESSIONS: Session[] = [
+  { id: '1', title: '烫发化学原理', preview: '二硫键的断裂与重组...', time: '刚刚' },
+  { id: '2', title: '发质损伤修复', preview: '角蛋白护理方案推荐', time: '2h前' },
+  { id: '3', title: '染发配方计算', preview: '氧化剂比例与发色关系', time: '昨天' },
+  { id: '4', title: '头皮护理流程', preview: '油性头皮的控油策略', time: '昨天' },
+  { id: '5', title: '剪发技法分析', preview: '层次剪与渐变剪对比', time: '3天前' },
+]
+
+const SOURCES: Source[] = [
+  { id: 's1', title: '美发化学基础手册', excerpt: '烫发过程分为两个阶段：软化期使用含有巯基乙酸的还原剂打开二硫键，定型期使用氧化剂（如溴酸钠）重新形成新位置的二硫键，从而固定新的卷曲形态。', page: '第 42 页', icon: '📗' },
+  { id: 's2', title: '发型师专业认证教材', excerpt: '角蛋白链通过二硫键交联维持头发的强度与形态。永久烫发彻底改变这些键的位置，而半永久处理仅暂时改变氢键，会随清洗逐渐恢复。', page: '第 87 页', icon: '📘' },
+]
+
+const INIT_MESSAGES: Message[] = [
+  { id: 'm1', role: 'user', content: '你好，我想了解一下烫发的化学原理，特别是二硫键是如何被改变的？', timestamp: '14:22' },
+  {
+    id: 'm2', role: 'assistant', timestamp: '14:22',
+    content: '烫发的核心原理围绕头发中的**二硫键（S–S 键）**展开。头发的主要成分是角蛋白，角蛋白链之间通过大量二硫键交联，赋予头发强度和自然形态。\n\n整个烫发过程分为两个关键阶段：\n\n**① 软化阶段（还原）**\n涂抹含**巯基乙酸铵**的烫发水，它作为还原剂断开二硫键，将头发从固定形态"解放"出来，此时头发变得柔软可塑。\n\n**② 定型阶段（氧化）**\n将头发固定在新形态后，涂抹定型液（含溴酸钠或过氧化氢），重新形成二硫键——但这次是在新位置，从而永久固定卷曲形态。\n\n需要注意的是，频繁烫发会累积损伤毛鳞片和皮质层，建议间隔至少 **6 个月**。',
+    sources: SOURCES,
+  },
+  { id: 'm3', role: 'user', content: '如果客户本身发质比较细软，烫发前需要做什么特殊处理吗？', timestamp: '14:24' },
+  {
+    id: 'm4', role: 'assistant', timestamp: '14:25',
+    content: '细软发质烫发前的处理非常关键，操作不当容易过度损伤。以下是专业建议：\n\n**🔍 发质评估**\n先做毛鳞片检测，判断发质的多孔程度。细软发通常多孔，吸收化学品速度更快。\n\n**💊 前处理方案**\n• 补充角蛋白：提前 1–2 周做一次角蛋白护理，增加发丝密度\n• 降低化学品浓度：选用温和型烫发水（pH 值控制在 8.0–8.5）\n• 缩短软化时间：比正常发质缩短 20–30%，每 5 分钟检查一次弹性\n\n细软发建议选择**数码烫**而非冷烫，温度控制更精准，且产品渗透更均匀，最终效果更持久。',
+  },
+]
 
 function makeId() { return Math.random().toString(36).slice(2) }
 function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
@@ -71,7 +96,6 @@ function formatContent(text: string) {
 function MsgBubble({ msg }: { msg: Message }) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const isUser = msg.role === 'user'
-  const user = getUser()
   return (
     <div className="animate-fade-up" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, flexDirection: isUser ? 'row-reverse' : 'row' }}>
       {/* Avatar */}
@@ -81,7 +105,7 @@ function MsgBubble({ msg }: { msg: Message }) {
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         color: '#fff', fontSize: 12, fontWeight: 600,
       }}>
-        {isUser ? (user?.name?.slice(-1) || 'U') : 'AI'}
+        {isUser ? '张' : 'AI'}
       </div>
       <div style={{ maxWidth: '68%', display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
         <div style={{
@@ -108,14 +132,13 @@ function MsgBubble({ msg }: { msg: Message }) {
 }
 
 export default function KnowledgePage() {
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>(INIT_MESSAGES)
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
   const [activeSession, setActiveSession] = useState('1')
   const [showKb, setShowKb] = useState(true)
   const [expandedDoc, setExpandedDoc] = useState<string | null>('doc1')
   const bottomRef = useRef<HTMLDivElement>(null)
-  const user = getUser()
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, typing])
 
@@ -128,29 +151,18 @@ export default function KnowledgePage() {
 
   const handleSend = async () => {
     const text = input.trim()
-    if (!text || typing || !user) return
+    if (!text || typing) return
     setInput('')
     const userMsg: Message = { id: makeId(), role: 'user', content: text, timestamp: nowTime() }
     setMessages(prev => [...prev, userMsg])
     setTyping(true)
-    try {
-      const res = await sendChat(text, user.id!)
-      if (res.code !== 0) {
-        showToast(res.message || '发送失败', 'error')
-        setTyping(false)
-        return
-      }
-      setTyping(false)
-      setMessages(prev => [...prev, {
-        id: makeId(), role: 'assistant', timestamp: nowTime(),
-        content: res.data.answer,
-        // @ts-ignore
-        sources: res.data.sources || [],
-      }])
-    } catch (e) {
-      showToast('网络错误，请重试', 'error')
-      setTyping(false)
-    }
+    await new Promise(r => setTimeout(r, 1500))
+    setTyping(false)
+    setMessages(prev => [...prev, {
+      id: makeId(), role: 'assistant', timestamp: nowTime(),
+      content: '感谢您的提问！根据知识库中的专业资料，我为您整理了详细解答。如需进一步了解，请随时追问。',
+      sources: [SOURCES[0]],
+    }])
   }
 
   return (
@@ -162,18 +174,31 @@ export default function KnowledgePage() {
             <button
               className="btn btn-primary"
               style={{ width: '100%', fontSize: 13, padding: '8px 14px' }}
-              onClick={() => {
-                setMessages([])
-                setActiveSession(makeId())
-              }}
             >
               + 新建对话
             </button>
           </div>
           <p style={{ fontSize: 11, color: '#94a3b8', padding: '10px 14px 6px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>最近对话</p>
           <div className="flex-1 scrollbar-thin" style={{ overflowY: 'auto', padding: '0 8px 8px' }}>
-            {/* 会话列表 placeholder */}
-            <p style={{ fontSize: 12, color: '#94a3b8', padding: '10px', textAlign: 'center' }}>新建对话开始问答</p>
+            {SESSIONS.map(s => (
+              <button
+                key={s.id}
+                onClick={() => setActiveSession(s.id)}
+                style={{
+                  width: '100%', padding: '10px 12px', borderRadius: 10, border: 'none', textAlign: 'left', cursor: 'pointer',
+                  background: activeSession === s.id ? '#eef2ff' : 'transparent',
+                  marginBottom: 2, transition: 'background 0.12s',
+                }}
+                onMouseOver={e => { if (activeSession !== s.id) e.currentTarget.style.background = '#f8fafc' }}
+                onMouseOut={e => { if (activeSession !== s.id) e.currentTarget.style.background = 'transparent' }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+                  <span style={{ fontSize: 13, fontWeight: activeSession === s.id ? 600 : 400, color: activeSession === s.id ? '#6366f1' : '#1e293b' }}>{s.title}</span>
+                  <span style={{ fontSize: 11, color: '#94a3b8' }}>{s.time}</span>
+                </div>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>{s.preview}</span>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -183,11 +208,11 @@ export default function KnowledgePage() {
           <div style={{ background: '#fff', borderBottom: '1px solid #f1f5f9', padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ width: 36, height: 36, borderRadius: 10, background: '#f5f3ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2C5.8 2 4 3.8 4 6c0 1.5.8 2.8 2 3.5V11h4V9.5c1.2-.7 2-2 2-3.5 0-2.2-1.8-4-4-4z" fill="#6366f1"/><path d="M6 11h4v1.5c0 .8-.7 1.5-1.5 1.5h-5c-.8 0-1.5-.7-1.5-1.5V11z" fill="#818cf8"/></svg>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2C5.8 2 4 3.8 4 6c0 1.5.8 2.8 2 3.5V11h4V9.5c1.2-.7 2-2 2-3.5 0-2.2-1.8-4-4-4z" fill="#6366f1"/><path d="M6 11h4v1.5c0 .3-.2.5-.5.5h-3c-.3 0-.5-.2-.5-.5V11z" fill="#818cf8"/></svg>
               </div>
               <div>
-                <p style={{ fontWeight: 600, fontSize: 14, color: '#1e293b' }}>知识库问答</p>
-                <p style={{ fontSize: 12, color: '#94a3b8' }}>{messages.length} 条消息</p>
+                <p style={{ fontWeight: 600, fontSize: 14, color: '#1e293b' }}>烫发化学原理</p>
+                <p style={{ fontSize: 12, color: '#94a3b8' }}>引用 2 个知识来源 · {messages.length} 条消息</p>
               </div>
             </div>
             <button
@@ -200,7 +225,7 @@ export default function KnowledgePage() {
                 transition: 'all 0.15s',
               }}
             >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="10" rx="1" fill={showKb ? '#6366f1' : '#9ca3af'}/><rect x="7" y="1" width="4" height="10" rx="1" fill={showKb ? '#818cf8' : '#d1d5db'}/></svg>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><rect x="1" y="1" width="4" height="10" rx="1" fill={showKb ? '#6366f1' : '#9ca3af'}/><rect x="7" y="1" width="4" height="5" rx="1" fill={showKb ? '#818cf8' : '#d1d5db'}/><rect x="7" y="7.5" width="4" height="3.5" rx="1" fill={showKb ? '#818cf8' : '#d1d5db'}/></svg>
               知识库
             </button>
           </div>
@@ -228,8 +253,8 @@ export default function KnowledgePage() {
                     key={s}
                     onClick={() => setInput(s)}
                     style={{ fontSize: 12, padding: '5px 12px', borderRadius: 999, background: '#f5f3ff', color: '#6366f1', border: '1px solid #e0d9ff', cursor: 'pointer', transition: 'all 0.12s' }}
-                    onMouseOver={e => { (e.currentTarget as HTMLElement).style.background = '#ede9fe' }}
-                    onMouseOut={e => { (e.currentTarget as HTMLElement).style.background = '#f5f3ff' }}
+                    onMouseOver={e => { e.currentTarget.style.background = '#ede9fe' }}
+                    onMouseOut={e => { e.currentTarget.style.background = '#f5f3ff' }}
                   >
                     {s}
                   </button>
@@ -241,7 +266,7 @@ export default function KnowledgePage() {
                 boxShadow: input ? '0 0 0 3px rgba(99,102,241,0.08)' : 'none', transition: 'all 0.15s',
               }}>
                 <button style={{ background: 'none', border: 'none', color: '#94a3b8', padding: 6, flexShrink: 0 }}>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 8.5L7.5 14.5C5.8 16.2 3.1 16.2 1.5 14.5C-.2 12.8-.2 10.1 1.5 8.5L9 1C10.2-.2 12.1-.2 13.3 1C14.5 2.2 14.5 4.1 13.3 5.3L6.3 12.3C5.6 13 4.5 13 3.8 12.3C3.1 11.6 3.1 10.5 3.8 9.8L10.3 3.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13.5 8.5L7.5 14.5C5.8 16.2 3.1 16.2 1.5 14.5C-.2 12.8-.2 10.1 1.5 8.5L9 1C10.2-.2 12.1-.2 13.3 1C14.5 2.2 14.5 4.1 13.3 5.3L6.3 12.3C5.6 13 4.5 13 3.8 12.3C3.1 11.6 3.1 10.5 3.8 9.8L10.3 3.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
                 </button>
                 <textarea
                   value={input}
@@ -263,7 +288,7 @@ export default function KnowledgePage() {
                     boxShadow: input.trim() && !typing ? '0 2px 10px rgba(99,102,241,0.3)' : 'none',
                   }}
                 >
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M13 1L1 5.5M6 1L13 1L8 13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M13 1L1 5.5L6 7M13 1L8.5 13L6 7M13 1L6 7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 </button>
               </div>
               <p style={{ textAlign: 'center', fontSize: 11, color: '#d1d5db', marginTop: 8 }}>AI 回复基于知识库内容，专业操作请咨询认证发型师</p>
@@ -280,7 +305,7 @@ export default function KnowledgePage() {
                 <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>4 份文档 · 826 页</p>
               </div>
               <button onClick={() => setShowKb(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4 }}>
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
               </button>
             </div>
             {/* Stats */}
@@ -311,7 +336,7 @@ export default function KnowledgePage() {
                       <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 1 }}>{doc.pages} 页</p>
                     </div>
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: expandedDoc === doc.id ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.18s', flexShrink: 0 }}>
-                      <path d="M2 4L6 8L10 4" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path d="M2 4L6 8L10 4" stroke="#9ca3af" strokeWidth="1.5" strokeLinecap="round"/>
                     </svg>
                   </button>
                   {expandedDoc === doc.id && (
@@ -330,7 +355,7 @@ export default function KnowledgePage() {
             {/* Upload */}
             <div style={{ padding: '12px', borderTop: '1px solid #f1f5f9' }}>
               <button className="btn btn-primary" style={{ width: '100%', fontSize: 13 }}>
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1V9M4 4L6.5 1L9 4" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><path d="M1 10.5H12" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" opacity={0.6}/></svg>
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><path d="M6.5 1V9M4 4L6.5 1L9 4" stroke="white" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/><path d="M1 10.5H12" stroke="white" strokeWidth="1.4" strokeLinecap="round" opacity="0.6"/></svg>
                 上传文档
               </button>
             </div>

@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { saveAuth } from '../../utils/auth'
 import { showToast } from '../../utils/toast'
-import { registerCustomer } from '../../utils/api'
 
 export default function CustomerRegisterPage() {
   const nav = useNavigate()
@@ -17,20 +16,11 @@ export default function CustomerRegisterPage() {
     if (phone.length !== 11) { showToast('请输入 11 位手机号', 'error'); return }
     if (password.length < 6) { showToast('密码至少 6 位', 'error'); return }
     setLoading(true)
-    try {
-      const res = await registerCustomer({ name, phone, password, role: 'user' })
-      if (!res.data?.access_token) {
-        showToast(res.message || '注册失败', 'error')
-        return
-      }
-      saveAuth(res.data.access_token, res.data.user)
-      showToast('注册成功', 'success')
-      nav('/customer/chat')
-    } catch (e: any) {
-      showToast(e?.detail || e?.message || '网络错误，请重试', 'error')
-    } finally {
-      setLoading(false)
-    }
+    await new Promise(r => setTimeout(r, 1000))
+    setLoading(false)
+    saveAuth('mock_customer_token_' + Date.now(), { name, phone, role: 'customer' })
+    showToast('注册成功', 'success')
+    nav('/customer/chat')
   }
 
   return (
@@ -94,7 +84,7 @@ export default function CustomerRegisterPage() {
               >
                 {showPwd
                   ? <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M1 9C3 5 5.5 3 9 3s6 2 8 6c-2 4-4.5 6-8 6S3 13 1 9z" stroke="currentColor" strokeWidth="1.4"/><circle cx="9" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.4"/><path d="M2 2L16 16" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
-                  : <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M1 9C3 5 5.5 3 9 3s6 2 8 6c-2 4-4.5 6-8 6S3 13 1 9z" stroke="currentColor" strokeWidth="1.4"/></svg>
+                  : <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M1 9C3 5 5.5 3 9 3s6 2 8 6c-2 4-4.5 6-8 6S3 13 1 9z" stroke="currentColor" strokeWidth="1.4"/><circle cx="9" cy="9" r="2.5" stroke="currentColor" strokeWidth="1.4"/></svg>
                 }
               </button>
             </div>

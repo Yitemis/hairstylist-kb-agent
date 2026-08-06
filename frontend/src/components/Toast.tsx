@@ -30,28 +30,11 @@ export default function Toast() {
   if (!toasts.length) return null
 
   return (
-    <div style={{
-      position: 'fixed',
-      top: '20px',
-      right: '20px',
-      zIndex: 9999,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '8px',
-    }}>
+    <div className="toast-container">
       {toasts.map(t => (
-        <div key={t.id} style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px',
-          padding: '12px 16px',
-          borderRadius: '8px',
-          background: '#fff',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-          minWidth: '200px',
-        }}>
+        <div key={t.id} className={`toast toast-${t.type}`}>
           {icons[t.type]}
-          <span style={{ fontSize: '14px', color: '#1e293b' }}>{t.message}</span>
+          <span>{t.message}</span>
         </div>
       ))}
     </div>

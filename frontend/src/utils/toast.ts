@@ -1,46 +1,33 @@
-export type ToastType = 'success' | 'error' | 'info'
+type ToastType = 'success' | 'error' | 'info'
 
-export interface ToastEvent {
-  id: number
-  message: string
+interface ToastEvent {
+  id: string
   type: ToastType
+  message: string
 }
 
-let listeners: ((toasts: ToastEvent[]) => void)[] = []
+type Listener = (toasts: ToastEvent[]) => void
+
 let toasts: ToastEvent[] = []
-let nextId = 1
+const listeners: Set<Listener> = new Set()
 
 function notify() {
   listeners.forEach(l => l([...toasts]))
 }
 
 export function showToast(message: string, type: ToastType = 'info') {
-  const id = nextId++
-  toasts.push({ id, message, type })
+  const id = Math.random().toString(36).slice(2)
+  toasts = [...toasts, { id, type, message }]
   notify()
-  // 自动移除
   setTimeout(() => {
     toasts = toasts.filter(t => t.id !== id)
     notify()
-  }, 3000)
+  }, 3200)
 }
 
-export function successToast(message: string) {
-  showToast(message, 'success')
+export function subscribeToasts(listener: Listener): () => void {
+  listeners.add(listener)
+  return () => { listeners.delete(listener) }
 }
 
-export function errorToast(message: string) {
-  showToast(message, 'error')
-}
-
-export function infoToast(message: string) {
-  showToast(message, 'info')
-}
-
-export function subscribeToasts(listener: (toasts: ToastEvent[]) => void) {
-  listeners.push(listener)
-  listener(toasts)
-  return () => {
-    listeners = listeners.filter(l => l !== listener)
-  }
-}
+export type { ToastEvent, ToastType }

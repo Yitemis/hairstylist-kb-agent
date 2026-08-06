@@ -214,6 +214,22 @@ async def reload_configuration() -> dict:
 # ------------------------------------------------------------------
 
 
+@app.get("/api/rag/supported-formats", summary="返回支持的文件格式 (前端上传 UI 用)")
+async def rag_supported_formats() -> dict:
+    """借鉴 ekbs: 返回所有支持的格式 (前端 KnowledgePage 上传按钮用)."""
+    from app.rag.parsers import get_supported_extensions
+    return {
+        "supported": get_supported_extensions(),
+        "categories": {
+            "document": [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".md", ".markdown"],
+            "image": [".jpg", ".jpeg", ".png", ".webp", ".bmp"],
+            "audio": [".mp3", ".wav", ".m4a", ".ogg", ".flac"],
+            "text": [".txt", ".log", ".rst"],
+        },
+        "max_size_mb": 100,
+    }
+
+
 @app.get("/metrics", summary="Prometheus 指标")
 async def metrics() -> Response:
     """Prometheus 监控指标（Grafana 接入）。"""
@@ -339,16 +355,28 @@ async def rag_upload_document(
         tmp_path = tmp.name
     try:
         parser = get_parser(tmp_path, file.filename)
+        # 第 1 层: 文档级校验
+        from app.rag.quality.validator import validate_document_level
+        doc_v = validate_document_level(
+            filename=file.filename, file_size_bytes=len(content_bytes))
+        if not doc_v.passed:
+            raise HTTPException(status_code=400, detail=doc_v.reason)
         parents = parser.load(
             document_id=document_id or file.filename,
             tenant_id=tenant_id,
             category=category,
         )
-        # 把 parent chunks 拼起来索引
-        from app.rag.v2_engine import index_document
+        # 第 2 层: 块级校验 (借鉴 ekbs)
+        from app.rag.quality.validator import validate_chunk_level
         total_chunks = 0
+        skipped = 0
+        from app.rag.v2_engine import index_document
         for p in parents:
             for c in p.child_chunks:
+                v = validate_chunk_level(c.content)
+                if not v.passed:
+                    skipped += 1
+                    continue
                 await index_document(
                     document_id=f"{document_id or file.filename}_chunk_{total_chunks}",
                     content=c.content,
@@ -364,6 +392,7 @@ async def rag_upload_document(
             "tenant_id": tenant_id,
             "parents": len(parents),
             "child_chunks_indexed": total_chunks,
+            "child_chunks_skipped": skipped,
         }
     finally:
         os.unlink(tmp_path)

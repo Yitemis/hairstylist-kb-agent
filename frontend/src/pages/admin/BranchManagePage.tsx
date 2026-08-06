@@ -1,22 +1,24 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import AdminLayout from '../../components/admin/AdminLayout'
-import { listBranches, adminCreateBranch, adminUpdateBranch, adminDeleteBranch, type Branch } from '../../utils/api'
 import { showToast } from '../../utils/toast'
 
-const EMPTY: Omit<Branch, 'id' | 'is_active'> = {
-  name: '',
-  address: '',
-  phone: '',
-  latitude: undefined,
-  longitude: undefined,
-  max_daily_appointments: 20,
-  is_active: true,
+interface Branch {
+  id: number; name: string; address: string; phone: string; lat?: string; lng?: string; maxPerDay: number; active: boolean
 }
+
+const INIT_BRANCHES: Branch[] = [
+  { id: 1, name: '三里屯旗舰店', address: '朝阳区三里屯路19号，尚街LOFT B座2层', phone: '010-8888-1234', lat: '39.9334', lng: '116.4547', maxPerDay: 30, active: true },
+  { id: 2, name: '国贸中心店',   address: '朝阳区建国路87号，CCTV旁',              phone: '010-8888-5678', lat: '39.9092', lng: '116.4607', maxPerDay: 20, active: true },
+  { id: 3, name: '西单商场店',   address: '西城区西单北大街120号',                  phone: '010-6666-8888', lat: '39.9134', lng: '116.3756', maxPerDay: 25, active: true },
+  { id: 4, name: '望京SOHO店',  address: '朝阳区望京街10号，望京SOHO T1',          phone: '010-7777-2233', lat: '40.0027', lng: '116.4719', maxPerDay: 18, active: false },
+]
+
+const EMPTY: Omit<Branch, 'id'> = { name: '', address: '', phone: '', lat: '', lng: '', maxPerDay: 20, active: true }
 
 function Modal({
   open, title, data, onChange, onSave, onClose
 }: {
-  open: boolean; title: string; data: Omit<Branch, 'id'>;
+  open: boolean; title: string; data: Omit<Branch, 'id'>
   onChange: (d: Omit<Branch, 'id'>) => void; onSave: () => void; onClose: () => void
 }) {
   if (!open) return null
@@ -26,7 +28,7 @@ function Modal({
         <div style={{ padding: '20px 24px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h3 style={{ fontSize: 17, fontWeight: 600, color: '#1e293b' }}>{title}</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 2L16 16M16 2L2 16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 2L16 16M16 2L2 16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
           </button>
         </div>
         <div style={{ padding: '20px 24px' }}>
@@ -40,28 +42,28 @@ function Modal({
           </div>
           <div className="form-group">
             <label className="form-label">联系电话 *</label>
-            <input className="input-field" placeholder="010-XXXX-XXXX" value={data.phone || ''} onChange={e => onChange({ ...data, phone: e.target.value })} />
+            <input className="input-field" placeholder="010-XXXX-XXXX" value={data.phone} onChange={e => onChange({ ...data, phone: e.target.value })} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label className="form-label">纬度（可选）</label>
-              <input className="input-field" placeholder="39.9000" value={data.latitude || ''} onChange={e => onChange({ ...data, latitude: parseFloat(e.target.value) || undefined })} />
+              <input className="input-field" placeholder="39.9000" value={data.lat || ''} onChange={e => onChange({ ...data, lat: e.target.value })} />
             </div>
             <div className="form-group">
               <label className="form-label">经度（可选）</label>
-              <input className="input-field" placeholder="116.4000" value={data.longitude || ''} onChange={e => onChange({ ...data, longitude: parseFloat(e.target.value) || undefined })} />
+              <input className="input-field" placeholder="116.4000" value={data.lng || ''} onChange={e => onChange({ ...data, lng: e.target.value })} />
             </div>
           </div>
           <div className="form-group">
             <label className="form-label">每日最大预约数</label>
-            <input className="input-field" type="number" min={1} max={200} value={data.max_daily_appointments || 20} onChange={e => onChange({ ...data, max_daily_appointments: parseInt(e.target.value) || undefined })} />
+            <input className="input-field" type="number" min={1} max={200} value={data.maxPerDay} onChange={e => onChange({ ...data, maxPerDay: parseInt(e.target.value) || 1 })} />
           </div>
           <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label className="switch">
-              <input type="checkbox" checked={data.is_active} onChange={e => onChange({ ...data, is_active: e.target.checked })} />
+              <input type="checkbox" checked={data.active} onChange={e => onChange({ ...data, active: e.target.checked })} />
               <span className="switch-slider" />
             </label>
-            <span style={{ fontSize: 14, color: '#64748b' }}>{data.is_active ? '正常营业' : '暂停营业'}</span>
+            <span style={{ fontSize: 14, color: '#64748b' }}>{data.active ? '正常营业' : '暂停营业'}</span>
           </div>
         </div>
         <div style={{ padding: '14px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -74,88 +76,30 @@ function Modal({
 }
 
 export default function BranchManagePage() {
-  const [branches, setBranches] = useState<Branch[]>([])
+  const [branches, setBranches] = useState<Branch[]>(INIT_BRANCHES)
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState<Omit<Branch, 'id'>>(EMPTY)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    async function fetchBranches() {
-      try {
-        const res = await listBranches()
-        if (res.code !== 0) {
-          showToast(res.message || '获取分店失败', 'error')
-          return
-        }
-        setBranches(res.data || [])
-      } catch (e) {
-        showToast('网络错误', 'error')
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchBranches()
-  }, [])
 
   const openCreate = () => { setEditId(null); setForm(EMPTY); setModalOpen(true) }
-  const openEdit = (b: Branch) => {
-    setEditId(b.id)
-    setForm({
-      name: b.name,
-      address: b.address,
-      phone: b.phone,
-      latitude: b.latitude,
-      longitude: b.longitude,
-      max_daily_appointments: b.max_daily_appointments,
-      is_active: b.is_active,
-    })
-    setModalOpen(true)
+  const openEdit = (b: Branch) => { setEditId(b.id); setForm({ name: b.name, address: b.address, phone: b.phone, lat: b.lat, lng: b.lng, maxPerDay: b.maxPerDay, active: b.active }); setModalOpen(true) }
+
+  const handleSave = () => {
+    if (!form.name || !form.address || !form.phone) { showToast('请填写必填项', 'error'); return }
+    if (editId !== null) {
+      setBranches(prev => prev.map(b => b.id === editId ? { ...b, ...form } : b))
+      showToast('分店信息已更新', 'success')
+    } else {
+      const newId = Math.max(...branches.map(b => b.id)) + 1
+      setBranches(prev => [...prev, { id: newId, ...form }])
+      showToast('分店已新增', 'success')
+    }
+    setModalOpen(false)
   }
 
-  const handleSave = async () => {
-    if (!form.name || !form.address) { showToast('请填写必填项', 'error'); return }
-    try {
-      if (editId !== null) {
-        const res = await adminUpdateBranch(editId, form)
-        if (res.code !== 0) {
-          showToast(res.message || '更新失败', 'error')
-          return
-        }
-        setBranches(prev => prev.map(b => b.id === editId ? { ...b, ...form } : b))
-        showToast('分店信息已更新', 'success')
-      } else {
-        const res = await adminCreateBranch(form)
-        if (res.code !== 0) {
-          showToast(res.message || '新增失败', 'error')
-          return
-        }
-        setBranches(prev => [...prev, res.data])
-        showToast('分店已新增', 'success')
-      }
-      setModalOpen(false)
-      // reload list
-      const res = await listBranches()
-      if (res.code === 0) setBranches(res.data || [])
-    } catch (e) {
-      showToast('网络错误', 'error')
-    }
-  }
-
-  const handleToggleActive = async (id: number, current: boolean) => {
-    try {
-      const branch = branches.find(b => b.id === id)
-      if (!branch) return
-      const res = await adminUpdateBranch(id, { ...branch, is_active: !current })
-      if (res.code !== 0) {
-        showToast(res.message || '操作失败', 'error')
-        return
-      }
-      setBranches(prev => prev.map(b => b.id === id ? { ...b, is_active: !current } : b))
-      showToast(`已${!current ? '上架' : '下架'}`, 'info')
-    } catch (e) {
-      showToast('网络错误', 'error')
-    }
+  const handleToggle = (id: number) => {
+    setBranches(prev => prev.map(b => b.id === id ? { ...b, active: !b.active } : b))
+    showToast('状态已更新', 'info')
   }
 
   return (
@@ -168,7 +112,7 @@ export default function BranchManagePage() {
             <p style={{ fontSize: 13, color: '#64748b', marginTop: 3 }}>共 {branches.length} 家门店</p>
           </div>
           <button className="btn btn-primary" onClick={openCreate}>
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1V13M1 7H13" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1V13M1 7H13" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>
             新增分店
           </button>
         </div>
@@ -183,38 +127,32 @@ export default function BranchManagePage() {
                 </tr>
               </thead>
               <tbody>
-                {loading ? (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>加载中...</td></tr>
-                ) : branches.length === 0 ? (
-                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: 30, color: '#94a3b8' }}>暂无分店</td></tr>
-                ) : (
-                  branches.map(b => (
-                    <tr key={b.id} className="animate-fade-up">
-                      <td style={{ color: '#94a3b8', fontSize: 13 }}>#{b.id}</td>
-                      <td style={{ fontWeight: 500 }}>{b.name}</td>
-                      <td style={{ color: '#64748b', fontSize: 13, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.address}</td>
-                      <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{b.phone}</td>
-                      <td>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 999, background: '#f0fdf4', color: '#166534', fontSize: 13, fontWeight: 500 }}>
-                          {b.max_daily_appointments} 单/日
-                        </span>
-                      </td>
-                      <td>
-                        <span className={b.is_active ? 'badge badge-active' : 'badge badge-inactive'}>
-                          {b.is_active ? '● 营业中' : '● 已停业'}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => openEdit(b)}>编辑</button>
-                          <button className="btn btn-danger" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => handleToggleActive(b.id, b.is_active)}>
-                            {b.is_active ? '下架' : '上架'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
+                {branches.map(b => (
+                  <tr key={b.id} className="animate-fade-up">
+                    <td style={{ color: '#94a3b8', fontSize: 13 }}>#{b.id}</td>
+                    <td style={{ fontWeight: 500 }}>{b.name}</td>
+                    <td style={{ color: '#64748b', fontSize: 13, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{b.address}</td>
+                    <td style={{ fontFamily: 'monospace', fontSize: 13 }}>{b.phone}</td>
+                    <td>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 999, background: '#f0fdf4', color: '#16a34a', fontSize: 13, fontWeight: 500 }}>
+                        {b.maxPerDay} 单/日
+                      </span>
+                    </td>
+                    <td>
+                      <span className={b.active ? 'badge badge-active' : 'badge badge-inactive'}>
+                        {b.active ? '● 营业中' : '● 已停业'}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button className="btn btn-ghost" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => openEdit(b)}>编辑</button>
+                        <button className="btn btn-danger" style={{ padding: '5px 10px', fontSize: 12 }} onClick={() => handleToggle(b.id)}>
+                          {b.active ? '下架' : '上架'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

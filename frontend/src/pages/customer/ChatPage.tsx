@@ -1,30 +1,86 @@
-import { useState, useRef, useEffect } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { getUser, clearAuth, getToken } from '../../utils/auth'
-import { sendChatStream, listBranches, type ChatOption } from '../../utils/api'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { getUser, clearAuth } from '../../utils/auth'
 import { showToast } from '../../utils/toast'
+
+/* ── Types ─────────────────────────────────────────── */
+type MessageType = 'text' | 'card-list'
+type StreamState = 'idle' | 'thinking' | 'streaming' | 'done' | 'error'
+
+interface CardItem { id: string; title: string; subtitle: string; badge?: string }
+interface AttachedImage { id: string; url: string }
 
 interface Message {
   id: string
   role: 'ai' | 'user'
-  text: string
+  type: MessageType
+  text?: string
+  streamingText?: string
+  thinking?: string
+  cards?: CardItem[]
+  images?: string[]
   time: string
-  options?: ChatOption[]  // 可点击选项（点选卡片）
+  stats?: { tokens: number; ms: number }
+  error?: boolean
 }
+
+/* ── Mock data ──────────────────────────────────────── */
+const BRANCHES: CardItem[] = [
+  { id: 'b1', title: '三里屯旗舰店', subtitle: '朝阳区三里屯路19号', badge: '5 位发型师' },
+  { id: 'b2', title: '国贸中心店',   subtitle: '朝阳区建国路87号',   badge: '3 位发型师' },
+  { id: 'b3', title: '西单商场店',   subtitle: '西城区西单北大街120号', badge: '4 位发型师' },
+]
+const STYLISTS: CardItem[] = [
+  { id: 's1', title: '陈晓磊', subtitle: '擅长烫发·染发·10年经验', badge: '¥200/h' },
+  { id: 's2', title: '王芳芳', subtitle: '擅长剪发·造型·8年经验',  badge: '¥160/h' },
+  { id: 's3', title: '刘志远', subtitle: '擅长染色·护理·6年经验',  badge: '¥140/h' },
+]
+const AI_RESPONSES = [
+  {
+    thinking: '用户想预约烫发，我来查询本周末可用时段...',
+    text: '好的！烫发一般需要 2.5–3 小时，这周末（7月5日–6日）都有档期 😊\n\n请问你偏好哪家门店？',
+  },
+  {
+    thinking: '用户上传了图片，我正在分析发质和发型特征...',
+    text: '我看到了你的发型图片！根据目前的发质状态，推荐尝试**韩系大波浪烫**，会非常适合你的脸型轮廓。\n\n需要帮你预约擅长烫发的发型师吗？',
+  },
+  {
+    thinking: '正在从知识库中检索最新分店列表...',
+    text: '好的，以下是距你最近的几家门店，请选择方便的门店：',
+  },
+]
 
 function makeId() { return Math.random().toString(36).slice(2) }
 function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
 
+const INIT_MESSAGES: Message[] = [
+  {
+    id: makeId(), role: 'ai', type: 'text', time: '14:00',
+    text: '你好！我是美发智能顾问 ✂️\n\n我可以帮你：\n• 根据发型需求推荐发型师\n• 查询空余预约时间\n• 完成在线预约\n\n现在还支持发送图片，我可以根据你的发型照片给出专业建议！',
+  },
+  {
+    id: makeId(), role: 'user', type: 'text', time: '14:01',
+    text: '我想预约烫发，这周末有空吗？',
+  },
+  {
+    id: makeId(), role: 'ai', type: 'text', time: '14:02',
+    thinking: '用户想预约烫发，我来查询本周末可用时段...',
+    text: '好的！烫发一般需要 2.5–3 小时，这周末（7月5日–6日）都有档期 😊\n\n请问你偏好哪家门店？',
+    stats: { tokens: 48, ms: 980 },
+  },
+]
+
+/* ── UI helpers ─────────────────────────────────────── */
 function AiAvatar() {
   return (
-    <div style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, background: 'linear-gradient(135deg, #6366f1, #818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, background: 'linear-gradient(135deg,#6366f1,#818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M8 2C5.8 2 4 3.8 4 6c0 1.5.8 2.8 2 3.5V11h4V9.5c1.2-.7 2-2 2-3.5 0-2.2-1.8-4-4-4z" fill="white" />
+        <path d="M6 11h4v1.5c0 .3-.2.5-.5.5h-3c-.3 0-.5-.2-.5-.5V11z" fill="rgba(255,255,255,0.65)" />
       </svg>
     </div>
   )
 }
-
 function UserAvatar({ name }: { name: string }) {
   return (
     <div style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, background: '#1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 600 }}>
@@ -32,328 +88,344 @@ function UserAvatar({ name }: { name: string }) {
     </div>
   )
 }
+function TypingDots() {
+  return (
+    <div style={{ display: 'flex', gap: 5, padding: '4px 0' }}>
+      {[0,1,2].map(i => (
+        <span key={i} className="dot-bounce" style={{ width: 7, height: 7, borderRadius: '50%', background: '#6366f1', display: 'inline-block', animationDelay: `${i * 0.15}s` }} />
+      ))}
+    </div>
+  )
+}
+function CardList({ cards, onSelect }: { cards: CardItem[]; onSelect: (c: CardItem) => void }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+      {cards.map(c => (
+        <button key={c.id} onClick={() => onSelect(c)} style={{ background: '#fff', border: '1.5px solid #e0e7ff', borderRadius: 12, padding: '10px 14px', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', transition: 'all 0.15s' }}
+          onMouseOver={e => { e.currentTarget.style.borderColor='#6366f1'; e.currentTarget.style.background='#f5f3ff' }}
+          onMouseOut={e => { e.currentTarget.style.borderColor='#e0e7ff'; e.currentTarget.style.background='#fff' }}>
+          <div>
+            <p style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', marginBottom: 2 }}>{c.title}</p>
+            <p style={{ fontSize: 12, color: '#64748b' }}>{c.subtitle}</p>
+          </div>
+          {c.badge && <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, background: '#eef2ff', color: '#6366f1', fontWeight: 500, whiteSpace: 'nowrap', marginLeft: 8 }}>{c.badge}</span>}
+        </button>
+      ))}
+    </div>
+  )
+}
 
+function MessageBubble({ msg, onCardSelect, onRetry, isStreaming }: {
+  msg: Message; onCardSelect: (c: CardItem) => void; onRetry?: () => void; isStreaming?: boolean
+}) {
+  const isUser = msg.role === 'user'
+  const displayText = msg.streamingText ?? msg.text ?? ''
+
+  return (
+    <div className="animate-fade-up" style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16, flexDirection: isUser ? 'row-reverse' : 'row' }}>
+      {isUser ? <UserAvatar name="我" /> : <AiAvatar />}
+      <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
+
+        {/* Thinking block */}
+        {!isUser && msg.thinking && (
+          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '8px 12px', marginBottom: 8 }}>
+            <p style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', lineHeight: 1.5 }}>💭 {msg.thinking}</p>
+          </div>
+        )}
+
+        {/* Error card */}
+        {msg.error && (
+          <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 12, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" stroke="#ef4444" strokeWidth="1.4"/><path d="M8 4.5V8.5M8 10.5V11" stroke="#ef4444" strokeWidth="1.4" strokeLinecap="round"/></svg>
+            <p style={{ fontSize: 13, color: '#dc2626', flex: 1 }}>回复生成失败，请重试</p>
+            {onRetry && <button onClick={onRetry} style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 12, cursor: 'pointer' }}>重试</button>}
+          </div>
+        )}
+
+        {/* Main bubble */}
+        {!msg.error && (msg.type === 'text' || msg.streamingText !== undefined) && (
+          <div style={{ padding: '10px 14px', fontSize: 15, lineHeight: 1.65, borderRadius: isUser ? '16px 16px 4px 16px' : '4px 16px 16px 16px', background: isUser ? 'linear-gradient(135deg,#6366f1,#818cf8)' : '#f1f5f9', color: isUser ? '#fff' : '#1e293b', boxShadow: isUser ? '0 2px 12px rgba(99,102,241,0.25)' : 'none', wordBreak: 'break-word' }}>
+            {/* User images */}
+            {isUser && msg.images && msg.images.length > 0 && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: displayText ? 8 : 0 }}>
+                {msg.images.map((url, i) => <img key={i} src={url} alt="" style={{ width: 80, height: 80, borderRadius: 12, objectFit: 'cover' }} />)}
+              </div>
+            )}
+            {displayText && (
+              <span style={{ whiteSpace: 'pre-wrap' }}>
+                {displayText.replace(/\*\*(.*?)\*\*/g, '$1')}
+                {isStreaming && <span style={{ display: 'inline-block', width: 2, height: 14, background: '#6366f1', marginLeft: 2, verticalAlign: 'middle', animation: 'blink-cur 0.8s step-end infinite' }} />}
+              </span>
+            )}
+            {!isUser && msg.images && msg.images.map((url, i) => <img key={i} src={url} alt="" style={{ display: 'block', width: '100%', borderRadius: 12, marginTop: 8 }} />)}
+          </div>
+        )}
+
+        {/* Cards */}
+        {msg.type === 'card-list' && msg.cards && <CardList cards={msg.cards} onSelect={onCardSelect} />}
+
+        {/* Stats */}
+        {msg.stats && !isStreaming && (
+          <p style={{ fontSize: 11, color: '#d1d5db', marginTop: 4 }}>已生成完 · {msg.stats.tokens} token · {(msg.stats.ms / 1000).toFixed(1)}s</p>
+        )}
+        {!msg.stats && !msg.error && (
+          <span style={{ fontSize: 11, color: '#d1d5db', marginTop: 4 }}>{msg.time}</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ImageStrip({ images, onRemove }: { images: AttachedImage[]; onRemove: (id: string) => void }) {
+  if (!images.length) return null
+  return (
+    <div style={{ display: 'flex', gap: 8, padding: '8px 14px 4px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+      {images.map(img => (
+        <div key={img.id} style={{ position: 'relative', flexShrink: 0 }}>
+          <img src={img.url} alt="" style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover', display: 'block' }} />
+          <button onClick={() => onRemove(img.id)} style={{ position: 'absolute', top: -6, right: -6, width: 18, height: 18, background: '#ef4444', color: '#fff', border: 'none', borderRadius: '50%', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>×</button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* ── Main ───────────────────────────────────────────── */
 export default function CustomerChatPage() {
   const nav = useNavigate()
-  const [searchParams] = useSearchParams()
-  const editOrderId = searchParams.get('edit')
   const user = getUser()
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<Message[]>(INIT_MESSAGES)
   const [input, setInput] = useState('')
-  const [typing, setTyping] = useState(false)
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
+  const [streamState, setStreamState] = useState<StreamState>('idle')
+  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [loadingHistory, setLoadingHistory] = useState(true)
+  const [step, setStep] = useState<'branch'|'stylist'|'time'|'done'>('branch')
+  const [selectedBranch, setSelectedBranch] = useState<CardItem | null>(null)
+  const stopRef = useRef(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const cameraRef = useRef<HTMLInputElement>(null)
+  const albumRef  = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, typing])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streamState])
 
-  // 加载历史对话（Agent 长期记忆）
-  useEffect(() => {
-    if (!user) return
-    setLoadingHistory(true)
-    fetch('/api/chat/history', {
-      headers: { 'Authorization': `Bearer ${getToken()}` },
+  /* SSE simulation */
+  const streamAiReply = useCallback(async (idx: number, extraCards?: CardItem[]) => {
+    stopRef.current = false
+    const resp = AI_RESPONSES[idx % AI_RESPONSES.length]
+    const msgId = makeId()
+    const startMs = Date.now()
+
+    setStreamState('thinking')
+    setMessages(prev => [...prev, { id: msgId, role: 'ai', type: 'text', time: nowTime(), thinking: resp.thinking, streamingText: '' }])
+    setStreamingMsgId(msgId)
+    await new Promise(r => setTimeout(r, 800))
+
+    if (stopRef.current) {
+      showToast('生成已中断', 'info')
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: '已中断', stats: { tokens: 0, ms: Date.now() - startMs } } : m))
+      setStreamState('idle'); setStreamingMsgId(null); return
+    }
+
+    setStreamState('streaming')
+    const full = resp.text
+    let acc = ''
+    for (let i = 0; i < full.length; i++) {
+      if (stopRef.current) {
+        showToast('生成已中断', 'info')
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: acc, stats: { tokens: Math.round(acc.length * 0.7), ms: Date.now() - startMs } } : m))
+        setStreamState('idle'); setStreamingMsgId(null); return
+      }
+      acc += full[i]
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: acc } : m))
+      await new Promise(r => setTimeout(r, 28))
+    }
+
+    const ms = Date.now() - startMs
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: full, stats: { tokens: Math.round(full.length * 0.72 + 12), ms } } : m))
+    if (extraCards) setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'card-list', cards: extraCards, time: nowTime() }])
+    setStreamState('idle'); setStreamingMsgId(null)
+  }, [])
+
+  const handleStop = () => { stopRef.current = true }
+
+  const handleImageFiles = (files: FileList | null) => {
+    if (!files) return
+    Array.from(files).slice(0, 3 - attachedImages.length).forEach(f => {
+      const reader = new FileReader()
+      reader.onload = e => setAttachedImages(prev => [...prev, { id: makeId(), url: e.target?.result as string }])
+      reader.readAsDataURL(f)
     })
-      .then(r => r.json())
-      .then(data => {
-        const list = (data.data?.messages || data.messages || []) as any[]
-        const loaded: Message[] = list.map((m: any) => ({
-          id: String(m.id),
-          role: m.role,
-          text: m.content,
-          time: new Date(m.created_at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }),
-        }))
-        if (loaded.length === 0) {
-          // 没有历史，显示欢迎语
-          loaded.push({
-            id: makeId(), role: 'ai',
-            text: '你好！我是美发智能顾问，可以帮你解答美发知识或者帮你一步步预约门店服务。请问今天有什么可以帮你的？',
-            time: nowTime(),
-          })
-        }
-        setMessages(loaded)
-      })
-      .catch(e => console.error('加载历史失败', e))
-      .finally(() => setLoadingHistory(false))
-  }, [user?.id])
-
-  // 自动从长期记忆中加载"已注入的事实"，但显示在欢迎语里
-  const [userFacts, setUserFacts] = useState<Array<{ key: string; value: string }>>([])
-  useEffect(() => {
-    if (!user) return
-    fetch('/api/user/facts', {
-      headers: { 'Authorization': `Bearer ${getToken()}` },
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (Array.isArray(data)) setUserFacts(data)
-      })
-      .catch(() => {})
-  }, [user?.id])
-
-  // 如果从"继续编辑"按钮进来，自动让 Agent 继续编辑草稿（防重）
-  const editTriggeredRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!editOrderId || !user) return
-    if (editTriggeredRef.current === editOrderId) return
-    editTriggeredRef.current = editOrderId
-    // 短暂延迟等 history 加载完
-    setTimeout(() => {
-      handleSend('继续编辑')
-    }, 800)
-    // 清掉 search param，避免刷新又触发
-    setTimeout(() => {
-      window.history.replaceState({}, '', '/customer/chat')
-    }, 100)
-  }, [editOrderId, user?.id])
-
-  const addMsg = (msg: Partial<Message>) => {
-    const full: Message = { id: makeId(), time: nowTime(), ...msg } as Message
-    setMessages(prev => [...prev, full])
   }
 
-  const handleSend = async (overrideText?: string) => {
-    const text = (overrideText ?? input).trim()
-    if (!text || typing || !user) return
-    if (!overrideText) setInput('')
-    addMsg({ role: 'user', text })
-    setTyping(true)
-    // 准备一个 AI 消息占位，后续流式拼接
-    const aiMsgId = Date.now() + Math.random()
-    let aiText = ''
-    let aiOptions: any[] | undefined
-    let aiMode: string | undefined
-    addMsg({ id: aiMsgId as any, role: 'ai', text: '' })
-    try {
-      await sendChatStream(text, user.id!, (e) => {
-        if (e.event === 'text') {
-          aiText += e.data.delta || ''
-          // 实时更新消息（更新最后一条 AI 消息）
-          setMessages((prev) => prev.map((m) => 
-            m.id === aiMsgId ? { ...m, text: aiText } : m
-          ))
-        } else if (e.event === 'tool_call') {
-          // 显示工具调用状态
-          setMessages((prev) => prev.map((m) => 
-            m.id === aiMsgId ? { ...m, text: aiText + `
+  const handleSend = async () => {
+    const text = input.trim()
+    if ((!text && !attachedImages.length) || streamState !== 'idle') return
+    const imgUrls = attachedImages.map(i => i.url)
+    setMessages(prev => [...prev, { id: makeId(), role: 'user', type: 'text', time: nowTime(), text: text || undefined, images: imgUrls.length ? imgUrls : undefined }])
+    setInput(''); setAttachedImages([])
+    await streamAiReply(imgUrls.length > 0 ? 1 : 0)
+  }
 
-🔧 正在调用 ${e.data.name}...` } : m
-          ))
-        } else if (e.event === 'options') {
-          aiOptions = e.data.items
-        } else if (e.event === 'done') {
-          aiMode = e.data.mode
-          setMessages((prev) => prev.map((m) => 
-            m.id === aiMsgId ? { ...m, text: aiText, options: aiOptions || e.data.options, mode: aiMode } : m
-          ))
-        } else if (e.event === 'error') {
-          showToast(e.data.message || '对话失败', 'error')
-        }
-      })
-    } catch (e: any) {
-      showToast(e?.detail || e?.message || '网络错误，请重试', 'error')
-    } finally {
-      setTyping(false)
+  const handleCardSelect = async (card: CardItem) => {
+    if (streamState !== 'idle') return
+    if (step === 'branch') {
+      setSelectedBranch(card)
+      setMessages(prev => [...prev, { id: makeId(), role: 'user', type: 'text', text: `选择「${card.title}」`, time: nowTime() }])
+      setStep('stylist')
+      await streamAiReply(2, STYLISTS)
+    } else if (step === 'stylist') {
+      setMessages(prev => [...prev, { id: makeId(), role: 'user', type: 'text', text: `选择「${card.title}」`, time: nowTime() }])
+      setStep('time')
+      setStreamState('thinking')
+      await new Promise(r => setTimeout(r, 600))
+      setStreamState('idle')
+      setMessages(prev => [...prev,
+        { id: makeId(), role: 'ai', type: 'text', time: nowTime(), thinking: '正在查询该发型师本周末的可用档期...', text: `${card.title} 本周末可用时间段：`, stats: { tokens: 18, ms: 620 } },
+        { id: makeId(), role: 'ai', type: 'card-list', time: nowTime(), cards: [
+          { id: 't1', title: '7月5日 (周六) 10:00', subtitle: selectedBranch?.title || '', badge: '可预约' },
+          { id: 't2', title: '7月5日 (周六) 14:00', subtitle: selectedBranch?.title || '', badge: '可预约' },
+          { id: 't3', title: '7月6日 (周日) 11:00', subtitle: selectedBranch?.title || '', badge: '仅剩1位' },
+        ]},
+      ])
+    } else if (step === 'time') {
+      setMessages(prev => [...prev, { id: makeId(), role: 'user', type: 'text', text: `选择「${card.title}」`, time: nowTime() }])
+      setStep('done')
+      await streamAiReply(0)
     }
   }
 
-  // 点击选项卡片：把 title 当作用户输入发送
-  const handleOptionClick = (opt: ChatOption) => {
-    handleSend(opt.title)
-  }
-
-  const handleLogout = () => {
-    clearAuth()
-    nav('/customer/login')
-  }
+  const isBusy = streamState === 'thinking' || streamState === 'streaming'
+  const canSend = (input.trim().length > 0 || attachedImages.length > 0) && !isBusy
 
   return (
-    <div className="mobile-shell flex flex-col" style={{ height: '100vh', background: '#f8fafc', position: 'relative' }}>
-      {/* Nav */}
-      <div className="mobile-nav" style={{ justifyContent: 'space-between' }}>
-        <button style={{ background: 'none', border: 'none', padding: 6 }} onClick={() => setDrawerOpen(true)}>
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M2 5H18M2 10H18M2 15H18" stroke="#1e293b" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
+    <div className="mobile-shell" style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f8fafc', position: 'relative' }}>
+      <style>{`@keyframes blink-cur{0%,100%{opacity:1}50%{opacity:0}}`}</style>
+
+      {/* Drawer overlay */}
+      {drawerOpen && <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 30 }} onClick={() => setDrawerOpen(false)} />}
+
+      {/* Drawer */}
+      <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 260, background: '#1e293b', zIndex: 40, display: 'flex', flexDirection: 'column', transform: drawerOpen ? 'translateX(0)' : 'translateX(-100%)', transition: 'transform 0.25s ease' }}>
+        <div style={{ padding: '40px 20px 24px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ width: 52, height: 52, borderRadius: 16, background: 'linear-gradient(135deg,#6366f1,#818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 20, fontWeight: 700, marginBottom: 12 }}>{user?.name?.slice(-1) || '?'}</div>
+          <p style={{ color: '#f1f5f9', fontWeight: 600, fontSize: 16 }}>{user?.name || '游客'}</p>
+          <p style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>{user?.phone}</p>
+        </div>
+        <div style={{ padding: '12px 8px', flex: 1 }}>
+          {[
+            { label: '首页对话', icon: '💬', active: true,  cb: () => setDrawerOpen(false) },
+            { label: '我的订单', icon: '📋', active: false, cb: () => { setDrawerOpen(false); nav('/customer/orders') } },
+            { label: '我的记忆', icon: '🧠', active: false, cb: () => { setDrawerOpen(false); nav('/customer/memory') } },
+          ].map(item => (
+            <button key={item.label} onClick={item.cb} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, border: 'none', display: 'flex', alignItems: 'center', gap: 10, background: item.active ? 'rgba(99,102,241,0.2)' : 'transparent', color: item.active ? '#a5b4fc' : '#94a3b8', fontSize: 14, fontWeight: 500, cursor: 'pointer', marginBottom: 2, textAlign: 'left' }}>
+              <span>{item.icon}</span><span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+        <div style={{ padding: '16px 8px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <button onClick={() => { clearAuth(); nav('/customer/login') }} style={{ width: '100%', padding: '10px 14px', borderRadius: 10, border: 'none', display: 'flex', alignItems: 'center', gap: 10, background: 'transparent', color: '#ef4444', fontSize: 14, fontWeight: 500, cursor: 'pointer', textAlign: 'left' }}>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M6 2H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M11 11l3-3-3-3M14 8H6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            退出登录
+          </button>
+        </div>
+      </div>
+
+      {/* Top nav */}
+      <div className="mobile-nav" style={{ justifyContent: 'space-between', boxShadow: '0 1px 0 #f1f5f9', background: '#fff' }}>
+        <button style={{ background: 'none', border: 'none', padding: 6, color: '#1e293b' }} onClick={() => setDrawerOpen(true)}>
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M2 5H18M2 10H18M2 15H18" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
         </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981' }} />
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: isBusy ? '#f59e0b' : '#10b981', transition: 'background 0.3s' }} />
           <span style={{ fontWeight: 600, fontSize: 16, color: '#1e293b' }}>美发智能顾问</span>
         </div>
         <button style={{ background: 'none', border: 'none', padding: 6, color: '#6366f1' }} onClick={() => nav('/customer/orders')}>
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-            <rect x="3" y="2" width="16" height="18" rx="2" stroke="currentColor" strokeWidth="1.6" />
-            <path d="M7 7H15M7 11H15M7 15H11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="3" y="2" width="16" height="18" rx="2" stroke="currentColor" strokeWidth="1.6"/><path d="M7 7H15M7 11H15M7 15H11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>
         </button>
       </div>
 
-      {/* Drawer */}
-      {drawerOpen && (
-        <>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 30 }} onClick={() => setDrawerOpen(false)} />
-          <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: 260, background: '#1e293b', zIndex: 40, padding: '20px' }}>
-            <div style={{ padding: '20px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-              <div style={{ width: 52, height: 52, borderRadius: 16, background: 'linear-gradient(135deg, #6366f1, #818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 20, fontWeight: 700, marginBottom: 12 }}>
-                {user?.name?.slice(-1) || '?'}
-              </div>
-              <p style={{ color: '#f1f5f9', fontWeight: 600, fontSize: 16 }}>{user?.name || '游客'}</p>
-              <p style={{ color: '#64748b', fontSize: 13, marginTop: 2 }}>{user?.phone}</p>
-            </div>
-            <button onClick={() => { setDrawerOpen(false); nav('/customer/orders') }} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, border: 'none', background: 'transparent', color: '#94a3b8', fontSize: 14, textAlign: 'left', marginTop: 12, cursor: 'pointer' }}>
-              我的订单
-            </button>
-            <button onClick={() => {
-              if (!confirm('确定清空所有对话历史？')) return
-              fetch('/api/chat/history', {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${getToken()}` },
-              })
-                .then(r => r.json())
-                .then(() => {
-                  setMessages([{
-                    id: makeId(), role: 'ai',
-                    text: '对话已清空。有什么可以帮你的？',
-                    time: nowTime(),
-                  }])
-                  showToast('已清空', 'success')
-                  setDrawerOpen(false)
-                })
-                .catch(() => showToast('清空失败', 'error'))
-            }} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, border: 'none', background: 'transparent', color: '#f59e0b', fontSize: 14, textAlign: 'left', marginTop: 4, cursor: 'pointer' }}>
-              清空对话
-            </button>
-            <button onClick={handleLogout} style={{ width: '100%', padding: '11px 14px', borderRadius: 10, border: 'none', background: 'transparent', color: '#ef4444', fontSize: 14, textAlign: 'left', cursor: 'pointer' }}>
-              退出登录
-            </button>
-          </div>
-        </>
+      {/* Streaming indicator badge */}
+      {isBusy && (
+        <div style={{ position: 'absolute', top: 62, right: 14, zIndex: 10, background: 'rgba(255,255,255,0.92)', backdropFilter: 'blur(4px)', borderRadius: 20, padding: '4px 12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 8px rgba(0,0,0,0.06)' }}>
+          <p style={{ fontSize: 12, color: '#94a3b8', fontStyle: 'italic', margin: 0 }}>▌ AI 正在思考...</p>
+        </div>
       )}
 
       {/* Messages */}
-      <div className="flex-1 scrollbar-hide" style={{ overflowY: 'auto', padding: '16px 14px' }}>
-        {/* 长期记忆已记忆的事实 */}
-        {userFacts.length > 0 && (
-          <div style={{
-            background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
-            borderRadius: 12,
-            padding: '10px 14px',
-            marginBottom: 14,
-            border: '1px solid #e0d9ff',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <path d="M7 1a3 3 0 0 0-3 3v1H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-1V4a3 3 0 0 0-3-3zM5 4a2 2 0 1 1 4 0v1H5V4z" fill="#6366f1" />
-              </svg>
-              <span style={{ fontSize: 12, color: '#4c1d95', fontWeight: 600 }}>我已记住你的：</span>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {userFacts.slice(0, 5).map((f, i) => (
-                <span key={i} style={{
-                  fontSize: 11,
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  background: '#fff',
-                  color: '#6366f1',
-                  border: '1px solid #c7d2fe',
-                }}>
-                  {f.key}: {f.value.length > 20 ? f.value.slice(0, 20) + '...' : f.value}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+      <div className="scrollbar-hide" style={{ overflowY: 'auto', padding: '16px 14px', flex: 1 }}>
         {messages.map(msg => (
-          <div key={msg.id} style={{ display: 'flex', flexDirection: msg.role === 'user' ? 'row-reverse' : 'row', alignItems: 'flex-start', gap: 10, marginBottom: 16 }}>
-            {msg.role === 'ai' ? <AiAvatar /> : <UserAvatar name={user?.name || '我'} />}
-            <div style={{ maxWidth: '78%' }}>
-              <div className={msg.role === 'ai' ? 'bubble-ai' : 'bubble-user'}>
-                {msg.text.split('\n').map((line, i) => (
-                  <span key={i}>{line}{i < msg.text.split('\n').length - 1 && <br />}</span>
-                ))}
-              </div>
-              {/* 可点击选项卡片 */}
-              {msg.options && msg.options.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
-                  {msg.options.map((opt, i) => (
-                    <button
-                      key={`${opt.type}-${opt.id}-${i}`}
-                      onClick={() => handleOptionClick(opt)}
-                      disabled={typing}
-                      style={{
-                        background: '#fff',
-                        border: '1.5px solid #e0e7ff',
-                        borderRadius: 10,
-                        padding: '10px 12px',
-                        textAlign: 'left',
-                        cursor: typing ? 'not-allowed' : 'pointer',
-                        opacity: typing ? 0.5 : 1,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 8,
-                        transition: 'all 0.15s',
-                      }}
-                      onMouseOver={e => { (e.currentTarget as HTMLElement).style.borderColor = '#6366f1'; (e.currentTarget as HTMLElement).style.background = '#f5f3ff' }}
-                      onMouseOut={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e0e7ff'; (e.currentTarget as HTMLElement).style.background = '#fff' }}
-                    >
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', marginBottom: 2 }}>{opt.title}</p>
-                        {opt.subtitle && <p style={{ fontSize: 12, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.subtitle}</p>}
-                      </div>
-                      {opt.badge && (
-                        <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, background: '#eef2ff', color: '#6366f1', fontWeight: 500, whiteSpace: 'nowrap' }}>{opt.badge}</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <p style={{ fontSize: 11, color: '#cbd5e1', marginTop: 4, textAlign: msg.role === 'user' ? 'right' : 'left' }}>{msg.time}</p>
-            </div>
-          </div>
+          <MessageBubble
+            key={msg.id}
+            msg={msg}
+            onCardSelect={handleCardSelect}
+            onRetry={msg.error ? () => streamAiReply(0) : undefined}
+            isStreaming={msg.id === streamingMsgId && isBusy}
+          />
         ))}
-        {typing && (
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 16 }}>
-            <AiAvatar />
-            <div className="bubble-ai">
-              <div style={{ display: 'flex', gap: 5, padding: '4px 0' }}>
-                <span className="dot-bounce" style={{ width: 7, height: 7, borderRadius: '50%', background: '#6366f1', display: 'inline-block' }} />
-                <span className="dot-bounce" style={{ width: 7, height: 7, borderRadius: '50%', background: '#6366f1', display: 'inline-block' }} />
-                <span className="dot-bounce" style={{ width: 7, height: 7, borderRadius: '50%', background: '#6366f1', display: 'inline-block' }} />
-              </div>
-            </div>
-          </div>
-        )}
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div style={{ background: '#fff', borderTop: '1px solid #f1f5f9', padding: '10px 14px', display: 'flex', alignItems: 'flex-end', gap: 10 }}>
-        <textarea
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-          placeholder="输入你的问题或预约需求..."
-          rows={1}
-          style={{ flex: 1, border: '1.5px solid #e2e8f0', borderRadius: 22, padding: '9px 16px', fontSize: 15, outline: 'none', resize: 'none', background: '#f8fafc', color: '#1e293b', lineHeight: 1.5, maxHeight: 96 }}
-        />
-        <button
-          onClick={handleSend}
-          disabled={!input.trim() || typing}
-          style={{
-            width: 42, height: 42, borderRadius: '50%', border: 'none', flexShrink: 0,
-            background: input.trim() && !typing ? 'linear-gradient(135deg, #6366f1, #818cf8)' : '#e2e8f0',
-            color: input.trim() && !typing ? '#fff' : '#94a3b8',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: input.trim() && !typing ? 'pointer' : 'not-allowed',
-          }}
-        >
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-            <path d="M16 2L2 7L8 9M16 2L11 16L8 9M16 2L8 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      {/* Image strip + chip */}
+      {attachedImages.length > 0 && (
+        <div style={{ background: '#fff', borderTop: '1px solid #f1f5f9', paddingTop: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 14px' }}>
+            <span style={{ fontSize: 11, padding: '3px 9px', borderRadius: 999, background: '#eef2ff', color: '#6366f1', border: '1px solid #c7d2fe', fontWeight: 500 }}>📷 图片模式</span>
+            <span style={{ fontSize: 12, color: '#94a3b8' }}>{attachedImages.length}/3 张</span>
+          </div>
+          <ImageStrip images={attachedImages} onRemove={id => setAttachedImages(prev => prev.filter(i => i.id !== id))} />
+        </div>
+      )}
+
+      {/* Hidden inputs */}
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => handleImageFiles(e.target.files)} />
+      <input ref={albumRef}  type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => handleImageFiles(e.target.files)} />
+
+      {/* Input bar */}
+      <div style={{ background: '#fff', borderTop: '1px solid #f1f5f9', padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 -2px 12px rgba(0,0,0,0.04)', minHeight: 56 }}>
+        {/* Camera */}
+        <button onClick={() => cameraRef.current?.click()} disabled={attachedImages.length >= 3} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', flexShrink: 0, background: 'linear-gradient(135deg,#6366f1,#818cf8)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: attachedImages.length >= 3 ? 0.4 : 1, transition: 'opacity 0.15s' }}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M1 5.5C1 4.7 1.7 4 2.5 4h1.3L5 2h6l1.2 2H13.5c.8 0 1.5.7 1.5 1.5v7c0 .8-.7 1.5-1.5 1.5h-11C1.7 14 1 13.3 1 12.5v-7z" stroke="white" strokeWidth="1.3"/>
+            <circle cx="8" cy="9" r="2.2" stroke="white" strokeWidth="1.3"/>
           </svg>
         </button>
+        {/* Album */}
+        <button onClick={() => albumRef.current?.click()} disabled={attachedImages.length >= 3} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', flexShrink: 0, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', opacity: attachedImages.length >= 3 ? 0.4 : 1, transition: 'opacity 0.15s' }}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <rect x="1" y="1" width="14" height="14" rx="2.5" stroke="#64748b" strokeWidth="1.3"/>
+            <circle cx="5" cy="5" r="1.5" fill="#64748b"/>
+            <path d="M1 11L5 7L8 10L11 7L15 11" stroke="#64748b" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        {/* Inline chip */}
+        {attachedImages.length > 0 && (
+          <span style={{ fontSize: 11, padding: '3px 8px', borderRadius: 999, background: '#eef2ff', color: '#6366f1', border: '1px solid #c7d2fe', fontWeight: 500, whiteSpace: 'nowrap', flexShrink: 0 }}>图片模式</span>
+        )}
+        {/* Text input */}
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSend() } }}
+          placeholder="说点什么...可发图片"
+          disabled={isBusy}
+          style={{ flex: 1, border: '1.5px solid', borderRadius: 14, padding: '9px 14px', fontSize: 15, outline: 'none', background: '#f8fafc', color: '#1e293b', borderColor: input ? '#6366f1' : '#e2e8f0', transition: 'border-color 0.15s', opacity: isBusy ? 0.65 : 1 }}
+        />
+        {/* Send / Stop */}
+        {isBusy ? (
+          <button onClick={handleStop} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', flexShrink: 0, background: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 2px 10px rgba(239,68,68,0.35)' }}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <rect x="3" y="3" width="3" height="8" rx="1" fill="white"/>
+              <rect x="8" y="3" width="3" height="8" rx="1" fill="white"/>
+            </svg>
+          </button>
+        ) : (
+          <button onClick={handleSend} disabled={!canSend} style={{ width: 36, height: 36, borderRadius: '50%', border: 'none', flexShrink: 0, background: canSend ? 'linear-gradient(135deg,#6366f1,#818cf8)' : '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: canSend ? 'pointer' : 'not-allowed', boxShadow: canSend ? '0 2px 10px rgba(99,102,241,0.3)' : 'none', transition: 'all 0.15s' }}>
+            <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+              <path d="M14 1L1 5.5L7 7.5M14 1L9.5 14L7 7.5M14 1L7 7.5" stroke={canSend ? 'white' : '#94a3b8'} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   )
