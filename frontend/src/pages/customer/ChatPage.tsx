@@ -39,23 +39,6 @@ const STYLISTS: CardItem[] = [
 function makeId() { return Math.random().toString(36).slice(2) }
 function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
 
-const INIT_MESSAGES: Message[] = [
-  {
-    id: makeId(), role: 'ai', type: 'text', time: '14:00',
-    text: '你好！我是美发智能顾问 ✂️\n\n我可以帮你：\n• 根据发型需求推荐发型师\n• 查询空余预约时间\n• 完成在线预约\n\n现在还支持发送图片，我可以根据你的发型照片给出专业建议！',
-  },
-  {
-    id: makeId(), role: 'user', type: 'text', time: '14:01',
-    text: '我想预约烫发，这周末有空吗？',
-  },
-  {
-    id: makeId(), role: 'ai', type: 'text', time: '14:02',
-    thinking: '用户想预约烫发，我来查询本周末可用时段...',
-    text: '好的！烫发一般需要 2.5–3 小时，这周末（7月5日–6日）都有档期 😊\n\n请问你偏好哪家门店？',
-    stats: { tokens: 48, ms: 980 },
-  },
-]
-
 /* ── UI helpers ─────────────────────────────────────── */
 function AiAvatar() {
   return (
@@ -180,7 +163,33 @@ function ImageStrip({ images, onRemove }: { images: AttachedImage[]; onRemove: (
 export default function CustomerChatPage() {
   const nav = useNavigate()
   const user = getUser()
-  const [messages, setMessages] = useState<Message[]>(INIT_MESSAGES)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [hasGreeted, setHasGreeted] = useState(false)
+  // 加载时 AI 主动发欢迎语 (调真实 /api/chat)
+  useEffect(() => {
+    if (hasGreeted) return
+    setHasGreeted(true)
+    const greet = async () => {
+      const u = getUser()
+      const userId = (u as any)?.id || parseInt(localStorage.getItem('user_id') || '1')
+      try {
+        const resp = await sendChat('你好，请介绍你自己', userId, 'greeting')
+        const respData: any = resp.data || resp; const inner: any = respData.data || respData
+        const text: string = inner.answer || '你好！我是美发智能顾问 ✂️'
+        const msgId = makeId()
+        setMessages([{ id: msgId, role: 'ai', type: 'text', time: nowTime(), text, thinking: '正在为你准备欢迎语...' }])
+        // type out
+        let acc = ''
+        for (const i of text) {
+          acc += i
+          setMessages(prev => prev.map(m => m.id === msgId ? { ...m, text: acc } : m))
+          await new Promise(r => setTimeout(r, 25))
+        }
+      } catch (e) { /* silent */ }
+    }
+    greet()
+  }, [hasGreeted])
+
   const [input, setInput] = useState('')
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([])
   const [streamState, setStreamState] = useState<StreamState>('idle')
