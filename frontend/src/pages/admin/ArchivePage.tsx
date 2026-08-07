@@ -67,9 +67,10 @@ export default function ArchivePage() {
 
         {/* Stat cards */}
         <div style={{ display: 'flex', gap: 20, marginBottom: 20 }}>
-          <StatCard icon="💬" label="总聊天消息数"      value="284,612"  sub="所有时间累计" />
-          <StatCard icon="⚠️" label="6月以上未归档数"   value="38,240"   sub="建议尽快归档" accent="#f59e0b" />
-          <StatCard icon="💾" label="本月已节省空间"    value="143.2 MB" sub="2026年8月至今" accent="#10b981" />
+          <StatCard icon="💬" label="总聊天消息数" value={(stats as any)?.total_chat?.toLocaleString() ?? '-'} sub="所有时间累计" />
+          <StatCard icon="⚠️" label="6月以上未归档数" value={(stats as any)?.old_chat?.toLocaleString() ?? '-'} sub="建议尽快归档" accent="#f59e0b" />
+          <StatCard icon="💬" label="总订单数" value={(stats as any)?.total_order?.toLocaleString() ?? '-'} sub="所有时间累计" />
+          <StatCard icon="💾" label="上次归档" value={(stats as any)?.last_run ? new Date((stats as any).last_run).toLocaleString('zh-CN') : '从未'} sub="归档历史" accent="#10b981" />
         </div>
 
         {/* Operation panel */}

@@ -180,8 +180,8 @@ export default function KnowledgePage() {
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2C5.8 2 4 3.8 4 6c0 1.5.8 2.8 2 3.5V11h4V9.5c1.2-.7 2-2 2-3.5 0-2.2-1.8-4-4-4z" fill="#6366f1"/><path d="M6 11h4v1.5c0 .3-.2.5-.5.5h-3c-.3 0-.5-.2-.5-.5V11z" fill="#818cf8"/></svg>
               </div>
               <div>
-                <p style={{ fontWeight: 600, fontSize: 14, color: '#1e293b' }}>烫发化学原理</p>
-                <p style={{ fontSize: 12, color: '#94a3b8' }}>引用 2 个知识来源 · {messages.length} 条消息</p>
+                <p style={{ fontWeight: 600, fontSize: 14, color: '#1e293b' }}>当前会话</p>
+                <p style={{ fontSize: 12, color: '#94a3b8' }}>引用 {messages.reduce((a, m) => a + (m.sources?.length || 0), 0)} 个知识来源 · {messages.length} 条消息</p>
               </div>
             </div>
             <button
@@ -271,20 +271,11 @@ export default function KnowledgePage() {
             <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div>
                 <p style={{ fontWeight: 600, fontSize: 14, color: '#1e293b' }}>知识库</p>
-                <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>4 份文档 · 826 页</p>
+                <p style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{docs.length} 份文档</p>
               </div>
               <button onClick={() => setShowKb(false)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', padding: 4 }}>
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1L13 13M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
               </button>
-            </div>
-            {/* Stats */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '10px 12px', borderBottom: '1px solid #f1f5f9' }}>
-              {[['3', '本次引用'], ['2', '相关文档']].map(([v, l]) => (
-                <div key={l} style={{ textAlign: 'center', background: '#f5f3ff', borderRadius: 10, padding: '10px 0' }}>
-                  <p style={{ fontSize: 18, fontWeight: 700, color: '#6366f1' }}>{v}</p>
-                  <p style={{ fontSize: 11, color: '#7c3aed', marginTop: 2 }}>{l}</p>
-                </div>
-              ))}
             </div>
             {/* Docs */}
             <div className="flex-1 scrollbar-thin" style={{ overflowY: 'auto', padding: '10px 12px' }}>
