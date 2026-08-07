@@ -105,6 +105,7 @@ function MsgBubble({ msg }: { msg: Message }) {
 }
 
 export default function KnowledgePage() {
+  const [docs, setDocs] = useState<{ id: string; title: string; icon?: string; pages: number; tags?: string[]; desc?: string }[]>([])
   const [messages, setMessages] = useState<Message[]>([])
   const [sessions, setSessions] = useState<any[]>([])
   const [input, setInput] = useState('')
@@ -113,15 +114,9 @@ export default function KnowledgePage() {
   const [showKb, setShowKb] = useState(true)
   const [expandedDoc, setExpandedDoc] = useState<string | null>('doc1')
   const bottomRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { /* 文档列表待后端 API */ }, [])
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, typing])
-
-  const DOCS = [
-    { id: 'doc1', title: '美发化学基础手册', icon: '📗', pages: 214, tags: ['化学', '烫发', '染发'], desc: '涵盖烫发、染发核心化学原理，适合专业发型师参考。' },
-    { id: 'doc2', title: '发型师专业认证教材', icon: '📘', pages: 388, tags: ['剪发', '技法', '服务'], desc: '国家职业资格认证配套教材，包含技法与客户沟通。' },
-    { id: 'doc3', title: '发色科学与配方指南', icon: '📙', pages: 128, tags: ['染色', '配方', '色彩'], desc: '深度解析色轮理论、氧化还原反应与配色公式。' },
-    { id: 'doc4', title: '头皮健康护理手册', icon: '📕', pages: 96, tags: ['护理', '头皮', '产品'], desc: '头皮类型分析、问题处理与产品推荐全指南。' },
-  ]
 
   const handleSend = async () => {
     const text = input.trim()
@@ -293,7 +288,7 @@ export default function KnowledgePage() {
             </div>
             {/* Docs */}
             <div className="flex-1 scrollbar-thin" style={{ overflowY: 'auto', padding: '10px 12px' }}>
-              {DOCS.map(doc => (
+              {docs.map(doc => (
                 <div key={doc.id} style={{ borderRadius: 12, border: '1px solid #f1f5f9', marginBottom: 8, overflow: 'hidden' }}>
                   <button
                     style={{

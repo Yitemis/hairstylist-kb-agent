@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
+import { getMetrics } from '../../api'
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend,
@@ -89,6 +90,9 @@ const SESSIONS = [
 
 /* ── Page ───────────────────────────────────────────────── */
 export default function MonitorPage() {
+  const [sparklineData, setSparklineData] = useState<any>({cache: [], chat_qps: [], errors: []})
+  const [metrics, setMetrics] = useState<any>(null)
+  useEffect(() => { getMetrics().then(setMetrics).catch(() => {}) }, [])
   const [countdown, setCountdown] = useState(5)
   const [qpsData, setQpsData] = useState(genQps())
   const [lastRefresh, setLastRefresh] = useState(new Date())
@@ -160,7 +164,7 @@ export default function MonitorPage() {
           />
           <StatCard
             title="缓存命中率" value="85" unit="%" badge="↑ 健康" badgeColor="#10b981" badgeBg="#ecfdf5"
-            sub="Redis 语义缓存" spark={[78,80,82,80,83,84,85,84,86,85,84,85]} sparkColor="#6366f1"
+            sub="Redis 语义缓存" spark={sparklineData.cache || []} sparkColor="#6366f1"
           />
         </div>
 

@@ -6,15 +6,6 @@ import {
 } from 'recharts'
 
 /* ── Data ─────────────────────────────────────────────── */
-const TREND_DATA = [
-  { date: '7/30', recall: 0.68 },
-  { date: '7/31', recall: 0.71 },
-  { date: '8/1',  recall: 0.74 },
-  { date: '8/2',  recall: 0.70 },
-  { date: '8/3',  recall: 0.77 },
-  { date: '8/4',  recall: 0.81 },
-  { date: '8/5',  recall: 0.83 },
-]
 
 type Category = 'all' | 'knowledge' | 'booking' | 'multimodal' | 'casual'
 const CATEGORIES: Category[] = ['all', 'knowledge', 'booking', 'multimodal', 'casual']
@@ -81,6 +72,8 @@ function StatCard({ label, value, change, desc }: { label: string; value: string
 export default function RagEvalPage() {
   const [category, setCategory] = useState<Category>('all')
   const [running, setRunning] = useState(false)
+  const [evalReport, setEvalReport] = useState<any>(null)
+  const [trend, setTrend] = useState<{date: string; recall: number}[]>([])
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const PAGE_SIZE = 6
@@ -127,17 +120,17 @@ export default function RagEvalPage() {
 
         {/* Stat cards */}
         <div style={{ display: 'flex', gap: 20, marginBottom: 24 }}>
-          <StatCard label="Recall@5"  value="0.83" change={+3.7}  desc="vs 上次 0.80" />
-          <StatCard label="MRR"        value="0.79" change={+2.6}  desc="Mean Reciprocal Rank" />
+          <StatCard label="Recall@5"  value={(evalReport?.summary?.recall_at_5 ?? 0).toFixed(2)} change={0} desc="最近一次评估" />
+          <StatCard label="MRR"        value={(evalReport?.summary?.mrr ?? 0).toFixed(2)} change={0} desc="Mean Reciprocal Rank" />
           <StatCard label="Hit Rate"   value="91.2%" change={+1.4} desc="至少命中 1 条相关文档" />
-          <StatCard label="NDCG@5"     value="0.76" change={-0.8}  desc="Normalized DCG" />
+          <StatCard label="NDCG@5"     value={(evalReport?.summary?.ndcg_at_5 ?? 0).toFixed(2)} change={0} desc="Normalized DCG" />
         </div>
 
         {/* Trend chart */}
         <div className="card" style={{ padding: '18px 22px', marginBottom: 20 }}>
           <p style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', marginBottom: 14 }}>Recall@5 近 7 日趋势</p>
           <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={TREND_DATA} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+            <LineChart data={trend} margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
               <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <YAxis domain={[0.5, 1]} tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={36} />

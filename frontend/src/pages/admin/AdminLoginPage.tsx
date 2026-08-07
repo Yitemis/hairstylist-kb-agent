@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { saveAuth } from '../../utils/auth'
 import { showToast } from '../../utils/toast'
+import { loginStaff } from '../../api/auth'
 
 export default function AdminLoginPage() {
   const nav = useNavigate()
@@ -14,11 +15,21 @@ export default function AdminLoginPage() {
     if (phone.length !== 11) { showToast('请输入 11 位手机号', 'error'); return }
     if (password.length < 6) { showToast('密码至少 6 位', 'error'); return }
     setLoading(true)
-    await new Promise(r => setTimeout(r, 1000))
-    setLoading(false)
-    saveAuth('mock_admin_token_' + Date.now(), { name: '张经理', phone, role: 'admin' })
-    showToast('登录成功', 'success')
-    nav('/admin/knowledge')
+    try {
+      const res: any = await loginStaff({ phone, password })
+      const data = res.data || res
+      if (!data?.access_token) {
+        showToast(res.message || data?.detail || '登录失败', 'error')
+        return
+      }
+      saveAuth(data.access_token, data.user || { name: phone, phone, role: 'admin' })
+      showToast('登录成功', 'success')
+      nav('/admin/knowledge')
+    } catch (e: any) {
+      showToast(e?.detail || e?.message || '登录失败', 'error')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (

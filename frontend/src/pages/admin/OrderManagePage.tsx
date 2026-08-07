@@ -3,7 +3,7 @@ import { adminListOrders, adminUpdateOrderStatus } from '../../api'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
 
-type OrderStatus = 'pending' | 'confirmed' | 'done' | 'cancelled'
+type OrderStatus = 'draft' | 'pending' | 'confirmed' | 'done' | 'cancelled'
 
 interface Order {
   id: string; customer: string; branch: string; stylist: string; service: string; date: string; phone: string; status: OrderStatus; price: number
@@ -38,7 +38,7 @@ function StatusSelect({ value, onChange }: { value: OrderStatus; onChange: (v: O
 export default function OrderManagePage() {
   const [orders, setOrders] = useState<Order[]>([])
   useEffect(() => { adminListOrders().then((data: any) => setOrders(data as any)).catch(() => {}) }, [])
-  const [filter, setFilter] = useState<'all' | OrderStatus>('all')
+  const [filter, setFilter] = useState<'all' | OrderStatus>('all')  // 'all' + 5 status
   const [page, setPage] = useState(1)
 
   const filtered = filter === 'all' ? orders : orders.filter(o => o.status === filter)
@@ -80,7 +80,8 @@ export default function OrderManagePage() {
         {/* Stat cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 20 }}>
           {[
-            { label: '待确认', key: 'pending', color: '#f59e0b', bg: '#fffbeb' },
+            { label: '草稿',   key: 'draft',     color: '#94a3b8', bg: '#f8fafc' },
+            { label: '待确认', key: 'pending',   color: '#f59e0b', bg: '#fffbeb' },
             { label: '已确认', key: 'confirmed', color: '#10b981', bg: '#ecfdf5' },
             { label: '已完成', key: 'done', color: '#6366f1', bg: '#eef2ff' },
             { label: '已取消', key: 'cancelled', color: '#ef4444', bg: '#fef2f2' },
