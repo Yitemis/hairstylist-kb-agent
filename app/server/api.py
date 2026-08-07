@@ -1,21 +1,5 @@
 # -*- coding: utf-8 -*-
-"""FastAPI 后端：企业级 Agent 服务。
-
-基于 AgentScope 原生能力的企业级服务层：
-- 流式对话接口（打字机效果）
-- 安全过滤中间件
-- 可观测性指标
-- 知识库管理接口
-- 配置热重载接口
-
-接口列表：
-    GET  /            → 前端页面
-    GET  /chat        → 对话接口
-    GET  /health      → 健康检查
-    GET  /metrics     → Prometheus 指标
-    POST /reload      → 配置热重载
-    POST /reindex     → 知识库重新索引
-"""
+"""FastAPI 主入口：所有业务路由集中此处。"""
 from __future__ import annotations
 
 import json
@@ -1835,7 +1819,7 @@ async def admin_archive(
     """手动触发数据归档（运维用）。"""
     # 简化权限检查：只允许 admin
     from app.core.config import auth_config
-    if current.role != "admin" and current.id != 1:
+    if current.role != "admin":
         raise HTTPException(status_code=403, detail="需要 admin 权限")
     result = await archive_old_data()
     return {"status": "ok", "archived": result}

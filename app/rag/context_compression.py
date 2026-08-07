@@ -1,12 +1,11 @@
 # -*- coding: utf-8 -*-
 """Context Compression: 压缩 RAG 召回的文档。
 
-借鉴 LLMLingua (微软) + JavaGuide 数据热冷分离:
 - BM25-based: 用 query 给 hits 排序, 取 top-k (无依赖, 快速)
 - LLM-based: 用 LLM 总结压缩 (依赖 LLM, 慢但更好)
 - Sentence-based: 句子级压缩 (折中方案)
 
-借鉴 12-factor app: 配置化, 可关闭。
+配置化, 可关闭。
 """
 from __future__ import annotations
 

@@ -8,7 +8,6 @@
 - mm_chat:         多模态对话（火山方舟, 支持图片）
 - rerank:          重排（硅基流动 BAAI, 免费）
 
-借鉴 AWS Bedrock 的 multi-model 路由：
 - 业务按 capability 调用，不关心具体模型
 - 路由表配置在 .env，可热切换
 - 支持 fallback（主模型挂了用次选）

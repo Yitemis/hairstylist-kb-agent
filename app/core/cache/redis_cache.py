@@ -1,16 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Redis 缓存后端 (替代内存 LRU)。
-
-借鉴 JavaGuide + 12-factor app:
-- 生产推荐 Redis: 跨进程共享 + 持久化
-- 测试 fallback 到 LRU (无需 Redis)
-- 异步 API (redis.asyncio)
-
-Key 设计 (Redis 命名空间):
-- llm:response:<hash>           -> LLM 响应 (1h TTL)
-- idempotency:<key>            -> 幂等响应 (24h TTL)
-- gateway:rate_limit:<user>     -> 限流计数 (1min TTL)
-"""
+"""跨进程缓存后端：Redis 替代内存 LRU，session/进程间共享。"""
 from __future__ import annotations
 
 import asyncio

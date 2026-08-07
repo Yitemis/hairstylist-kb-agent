@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
-"""火山方舟 doubao-embedding-vision 嵌入模型适配器。
-
-继承 :class:`~agentscope.embedding.EmbeddingModelBase`，只需实现
-``_call_api(inputs) -> EmbeddingResponse``。基类的 ``__call__`` 已负责将
-TextBlock 解包为字符串、按 batch_size 分批、跨批次并发调用、失败重试与结果
-合并。本适配器需提供三项：batch_size 设为 1（火山 multimodal 端点每次仅接受
-一条输入）、将 inputs 序列化为火山要求的请求格式、从响应中提取向量。
-"""
+"""火山方舟多模态 embedding 适配器。"""
 import json
 from datetime import datetime
 from typing import Any

@@ -1,19 +1,5 @@
 # -*- coding: utf-8 -*-
-"""知识问答专用 Agent：只装载 RAG 工具，让 LLM 自主决定检索。
-
-这是把"知识库问答"业务从 chat 端点剥离出来的关键模块。
-
-为什么需要独立的 Agent？
-- Booking 流程是确定的：分店 → 发型师 → 服务 → 时间 → 确认
-  这种"已知流程"用业务调度（_handle_booking_flow）更可靠
-- Knowledge 流程是不确定的：用户问啥都难预知
-  这种"探索性查询"用 ReAct Agent 让 LLM 自主决定调哪个工具更灵活
-
-设计原则（参考 AgentScope 2.0）：
-- 只装载 search_hair_knowledge 一个工具，避免 Agent 误调 booking 工具
-- 系统提示词强调"必须先检索，不能编造"
-- 出错兜底：Agent 失败时降级到纯 LLM
-"""
+"""知识问答专用 Agent。"""
 from __future__ import annotations
 
 import logging

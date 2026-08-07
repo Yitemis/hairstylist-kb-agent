@@ -1,17 +1,5 @@
 # -*- coding: utf-8 -*-
-"""RAG 评估集：30 个真实美发问题 + 期望文档。
-
-借鉴 JavaGuide RAG 评估章节 + RAGAS 框架：
-- 30 个 query（覆盖知识检索 / 图片 / 闲聊等）
-- 每个 query 期望的关键词 / 文档 ID
-- 用真实 PDF 文档（从 mineru-output）
-
-QA 分布：
-- 知识问答 (20)：染发 / 烫发 / 护理 / 化学原理
-- 业务流程 (5)：预约 / 改时间 / 取消
-- 多模态 (3)：图片识别 + 推荐
-- 闲聊 (2)：问候 / 闲聊
-"""
+"""RAG 评估集：30 个真实美发 query 覆盖 4 类场景。"""
 from __future__ import annotations
 
 from dataclasses import dataclass

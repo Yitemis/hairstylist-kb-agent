@@ -1,19 +1,5 @@
 # -*- coding: utf-8 -*-
-"""数据归档：定期归档 / 清理 6 个月前的冷数据。
-
-借鉴 JavaGuide data-cold-hot-separation.md：
-- 热数据：最近 3 个月的，访问频繁（PG SSD）
-- 冷数据：6 个月以上的，归档 / 删除
-- 定时任务：每天凌晨 3 点跑（业务低峰期）
-
-策略（当前阶段）：
-- chat_messages: 超过 180 天的移到 archive 表（保留可审计）
-- orders: 超过 180 天的移到 archive 表
-- Milvus: 6 个月前的向量不删（向量检索仍是热的）
-- 未来: 冷向量存 OSS / 归档表
-
-借鉴 12-factor app：进程内异步后台任务，无需外部 cron。
-"""
+"""数据归档：定期清理 6 个月前的冷数据，释放 PG 空间。"""
 from __future__ import annotations
 
 import asyncio

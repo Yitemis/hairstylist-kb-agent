@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Agent 对话式下单工具：对话中创建/更新订单。
-
-每个工具：
-- async 函数 → AgentScope 2.0 会自动包装成 FunctionTool
-- 完整文档字符串给 Agent 看
-- 参数名+类型提示 → AgentScope 自动生成 JSON schema
-- 必须带 `user_id` 参数 → 从 JWT 提取，保证用户只能改自己的订单
-"""
+"""订单工具集：list_branches/list_stylists/create_draft_order 等。"""
 from __future__ import annotations
 
 import json

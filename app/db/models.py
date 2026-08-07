@@ -334,7 +334,7 @@ class Document(Base, TimestampMixin):
     parent_chunks: Mapped[list["ParentChunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"
     )
-    # 受众隔离（借鉴 RBAC）：user=C 端用户, staff=商家员工, all=所有人
+    # 受众隔离：user=C 端用户, staff=商家员工, all=所有人
     audience: Mapped[str] = mapped_column(String(20), default="all", nullable=False, index=True)
 
 

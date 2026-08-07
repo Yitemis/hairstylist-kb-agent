@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """RAG 评估指标。
 
-借鉴 JavaGuide + RAGAS 框架：
 - Recall@k: 前 k 个结果中包含正确答案的比例
 - MRR (Mean Reciprocal Rank): 第一个正确答案排名的倒数
 - NDCG@k: 归一化折损累积增益

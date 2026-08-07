@@ -1,18 +1,5 @@
 # -*- coding: utf-8 -*-
-"""幂等中间件：防止重复创建（订单 / 支付等高风险操作）。
-
-借鉴 JavaGuide idempotency.md + Stripe API 设计：
-- 客户端传 Idempotency-Key: <uuid> header
-- 服务端：第一次实际执行，后续直接返回缓存
-- 4 要素：唯一 key + 状态 + 持久化 + 过期
-- TTL 24h
-
-用法:
-    @router.post("/orders")
-    @idempotent("create_order")
-    async def create_order(...):
-        ...
-"""
+"""请求幂等：基于 Idempotency-Key 防重复扣费/重复处理。"""
 from __future__ import annotations
 
 import hashlib

@@ -1,25 +1,5 @@
 # -*- coding: utf-8 -*-
-"""SSE 事件总线：Chat 端点流式响应事件。
-
-为什么需要？
-- 用户在 C 端对话时，Agent 内部可能跑 5-10 秒（含多次工具调用）
-- 前端要看到"模型正在打字""正在调用工具"的实时反馈
-- 不用 SSE：要么等所有完成才显示（5秒白屏），要么前端轮询（浪费资源）
-- 用 SSE：服务器推流，前端实时渲染
-
-事件类型（参考 AgentScope 2.0 的 28 种事件）：
-
-| event | data | 含义 |
-|-------|------|------|
-| intent | {intent, mode} | 意图识别结果 |
-| thinking | {text} | 模型思考过程（如有） |
-| text | {delta} | 模型输出文本片段（增量） |
-| tool_call | {name, args} | 正在调用工具 |
-| tool_result | {name, summary} | 工具返回结果摘要 |
-| options | {items: [...]} | 列出可点击选项 |
-| done | {answer, mode, options} | 完整结果（最终一次） |
-| error | {message} | 出错 |
-"""
+"""事件总线。"""
 from __future__ import annotations
 
 import asyncio

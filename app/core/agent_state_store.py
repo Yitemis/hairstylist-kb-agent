@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
-"""AgentStateStore 接口 + JsonFile 实现。
-
-借鉴 AgentScope 2.0 的 AgentStateStore 设计：
-- 接口：save / get / getList / exists / delete / listSessionIds
-- 三元组定位：(userId, sessionId, key) → State
-- safe(filename) 防路径遍历
-- 多后端切换只改一行初始化代码
-"""
+"""Agent 状态持久化。"""
 from __future__ import annotations
 
 import json

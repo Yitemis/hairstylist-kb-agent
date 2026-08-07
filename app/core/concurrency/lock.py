@@ -1,21 +1,5 @@
 # -*- coding: utf-8 -*-
-"""分布式锁：基于 PostgreSQL advisory lock。
-
-借鉴 JavaGuide distributed-lock.md:
-- 不用 Redis SETNX (我们没 Redis)
-- 不用 Zookeeper (重)
-- 用 PG pg_advisory_xact_lock (轻量 + 事务自动释放)
-
-3 种锁:
-- advisory_lock(key): 阻塞获取 (要等)
-- try_advisory_lock(key): 非阻塞 (失败立即返回)
-- pg_advisory_xact_lock(key): 事务内自动释放
-
-应用场景:
-- 订单创建: 同发型师 + 同时段防重复
-- 状态机修改: 状态转换防并发
-- 长期记忆合并: 防重复合并
-"""
+"""分布式锁：基于 PG advisory_lock，事务内自动释放。"""
 from __future__ import annotations
 
 import hashlib
