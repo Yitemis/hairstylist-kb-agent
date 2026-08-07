@@ -118,7 +118,6 @@ async def get_order_detail(
 @router.post("/orders", summary="创建订单（幂等）", response_model=OrderPublic)
 @idempotent("create_order")
 async def create_order(
-    request: Request,
     body: OrderCreate,
     current: Annotated[CurrentUser, Depends(require_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
