@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { adminListOrders, adminUpdateOrderStatus } from '../../api'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
 
@@ -15,15 +16,7 @@ const STATUS_OPT: { value: OrderStatus; label: string; cls: string }[] = [
   { value: 'cancelled', label: '已取消', cls: 'badge badge-cancelled' },
 ]
 
-const INIT_ORDERS: Order[] = [
-  { id: 'ORD-20250701-001', customer: '李美华', branch: '三里屯旗舰店', stylist: '陈晓磊', service: '烫发（数码烫）', date: '2025-07-05 10:00', phone: '138****0001', status: 'confirmed', price: 580 },
-  { id: 'ORD-20250701-002', customer: '王小明', branch: '国贸中心店',   stylist: '王芳芳',  service: '剪发',          date: '2025-07-06 09:00', phone: '139****0002', status: 'pending',   price: 120 },
-  { id: 'ORD-20250702-001', customer: '张丽华', branch: '三里屯旗舰店', stylist: '待分配',  service: '染发全头',      date: '2025-07-07 14:00', phone: '186****0003', status: 'pending',   price: 460 },
-  { id: 'ORD-20250623-008', customer: '刘晓东', branch: '国贸中心店',   stylist: '王芳芳',  service: '剪发+造型',     date: '2025-06-23 14:00', phone: '135****0004', status: 'done',      price: 220 },
-  { id: 'ORD-20250618-003', customer: '陈芳',   branch: '西单商场店',   stylist: '刘志远',  service: '护发护理',      date: '2025-06-18 11:30', phone: '180****0005', status: 'done',      price: 180 },
-  { id: 'ORD-20250610-007', customer: '赵磊',   branch: '三里屯旗舰店', stylist: '陈晓磊',  service: '烫发（冷烫）', date: '2025-06-10 15:00', phone: '159****0006', status: 'cancelled', price: 380 },
-  { id: 'ORD-20250609-002', customer: '孙芸',   branch: '西单商场店',   stylist: '刘志远',  service: '染发挑染',      date: '2025-06-09 10:00', phone: '177****0007', status: 'done',      price: 320 },
-]
+
 
 const PAGE_SIZE = 5
 
@@ -43,7 +36,8 @@ function StatusSelect({ value, onChange }: { value: OrderStatus; onChange: (v: O
 }
 
 export default function OrderManagePage() {
-  const [orders, setOrders] = useState<Order[]>(INIT_ORDERS)
+  const [orders, setOrders] = useState<Order[]>([])
+  useEffect(() => { adminListOrders().then((data: any) => setOrders(data as any)).catch(() => {}) }, [])
   const [filter, setFilter] = useState<'all' | OrderStatus>('all')
   const [page, setPage] = useState(1)
 

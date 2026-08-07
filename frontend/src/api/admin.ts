@@ -47,6 +47,40 @@ export async function adminUpdateOrderStatus(
   })
 }
 
+
+// 分店管理
+export async function adminCreateBranch(data: any) {
+  return request('/api/admin/branches', { method: 'POST', body: JSON.stringify(data) })
+}
+export async function adminUpdateBranch(id: number, data: any) {
+  return request(`/api/admin/branches/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+export async function adminDeleteBranch(id: number) {
+  return request(`/api/admin/branches/${id}`, { method: 'DELETE' })
+}
+
+// 发型师管理
+export async function adminCreateStylist(data: any) {
+  return request('/api/stylists', { method: 'POST', body: JSON.stringify(data) })
+}
+export async function adminUpdateStylist(id: number, data: any) {
+  return request(`/api/stylists/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+export async function adminDeleteStylist(id: number) {
+  return request(`/api/stylists/${id}`, { method: 'DELETE' })
+}
+
+// 服务管理
+export async function adminCreateService(data: any) {
+  return request('/api/services', { method: 'POST', body: JSON.stringify(data) })
+}
+export async function adminUpdateService(id: number, data: any) {
+  return request(`/api/services/${id}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+export async function adminDeleteService(id: number) {
+  return request(`/api/services/${id}`, { method: 'DELETE' })
+}
+
 export interface RagEvalResult {
   query: string
   category: string

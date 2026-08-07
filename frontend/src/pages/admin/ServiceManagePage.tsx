@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { listServices, adminCreateService as createService, adminUpdateService as updateService, adminDeleteService as deleteService } from '../../api'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
 
@@ -16,19 +17,6 @@ const CATEGORY_COLORS: Record<Category, { bg: string; color: string }> = {
   护理: { bg: '#f0fdf4', color: '#22c55e' },
   造型: { bg: '#fef3c7', color: '#f59e0b' },
 }
-
-const INIT_SERVICES: Service[] = [
-  { id: 1,  name: '精剪（女）',       category: '剪发', duration: 60,  price: 128,  desc: '专业女士精剪，包含吹干造型',             active: true },
-  { id: 2,  name: '精剪（男）',       category: '剪发', duration: 45,  price: 88,   desc: '男士精剪，含洗发与打蜡造型',           active: true },
-  { id: 3,  name: '数码烫（大波浪）', category: '烫发', duration: 180, price: 580,  desc: '韩式大波浪烫，自然蓬松，持久卷度',     active: true },
-  { id: 4,  name: '冷烫（时尚卷）',   category: '烫发', duration: 150, price: 380,  desc: '适合自然系卷发，不损伤发质',           active: true },
-  { id: 5,  name: '全头染（单色）',   category: '染发', duration: 120, price: 460,  desc: '全头单色染，持色 6–8 周',             active: true },
-  { id: 6,  name: '挑染/渐变色',      category: '染发', duration: 150, price: 680,  desc: '专业调色师设计，局部提色或渐变效果',   active: true },
-  { id: 7,  name: '角蛋白护理',       category: '护理', duration: 90,  price: 280,  desc: '深层修复受损发质，提升光泽度',         active: true },
-  { id: 8,  name: '头皮 SPA',        category: '护理', duration: 60,  price: 180,  desc: '深层清洁头皮，促进血液循环',           active: true },
-  { id: 9,  name: '晚宴造型',         category: '造型', duration: 90,  price: 350,  desc: '适合婚礼、宴会，含发型设计+定型',     active: true },
-  { id: 10, name: '日常吹塑造型',     category: '造型', duration: 45,  price: 120,  desc: '基础吹风造型，适合日常出行',           active: false },
-]
 
 type FormData = Omit<Service, 'id'>
 const EMPTY: FormData = { name: '', category: '剪发', duration: 60, price: 0, desc: '', active: true }
@@ -90,7 +78,8 @@ function Modal({ open, title, data, onChange, onSave, onClose }: {
 }
 
 export default function ServiceManagePage() {
-  const [services, setServices] = useState<Service[]>(INIT_SERVICES)
+  const [services, setServices] = useState<Service[]>([])
+  useEffect(() => { listServices().then((d: any) => setServices(d as any)).catch(() => {}) }, [])
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState<FormData>(EMPTY)

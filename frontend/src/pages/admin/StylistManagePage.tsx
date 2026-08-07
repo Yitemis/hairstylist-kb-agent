@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { listStylists, listBranches, adminCreateStylist as createStylist, adminUpdateStylist as updateStylist, adminDeleteStylist as deleteStylist } from '../../api'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
 
@@ -7,13 +8,6 @@ interface Stylist {
 }
 
 const BRANCHES = ['三里屯旗舰店', '国贸中心店', '西单商场店', '望京SOHO店']
-
-const INIT_STYLISTS: Stylist[] = [
-  { id: 1, name: '陈晓磊', branch: '三里屯旗舰店', skills: '烫发,染发,造型', bio: '10年经验，擅长数码烫和时尚染色，多次获奖', maxHoursPerDay: 8, avatarUrl: '', active: true },
-  { id: 2, name: '王芳芳', branch: '国贸中心店',   skills: '剪发,造型,修护', bio: '8年经验，精通女士精剪与日系风格造型', maxHoursPerDay: 7, avatarUrl: '', active: true },
-  { id: 3, name: '刘志远', branch: '西单商场店',   skills: '染色,护理,漂发', bio: '6年经验，色彩感强，擅长挑染和渐变色', maxHoursPerDay: 8, avatarUrl: '', active: true },
-  { id: 4, name: '赵小艺', branch: '三里屯旗舰店', skills: '烫发,护理',       bio: '4年经验，温和细心，擅长发质修复疗程', maxHoursPerDay: 6, avatarUrl: '', active: false },
-]
 
 type FormData = Omit<Stylist, 'id'>
 const EMPTY: FormData = { name: '', branch: BRANCHES[0], skills: '', bio: '', maxHoursPerDay: 8, avatarUrl: '', active: true }
@@ -88,7 +82,12 @@ function Modal({ open, title, data, onChange, onSave, onClose }: {
 }
 
 export default function StylistManagePage() {
-  const [stylists, setStylists] = useState<Stylist[]>(INIT_STYLISTS)
+  const [stylists, setStylists] = useState<Stylist[]>([])
+  const [branches, setBranches] = useState<{ id: number; name: string }[]>([])
+  useEffect(() => {
+    listStylists().then((d: any) => setStylists(d as any)).catch(() => {})
+    listBranches().then((data: any) => setBranches(data as any)).catch(() => {})
+  }, [])
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState<FormData>(EMPTY)
