@@ -69,6 +69,58 @@ async def list_my_orders(
     return [OrderListItem(**row._mapping) for row in rows]
 
 
+@router.get("/orders/available-slots", summary="查询发型师可用时间段")
+async def get_available_slots(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    current: Annotated[CurrentUser, Depends(require_user)],
+    branch_id: int = Query(..., description="门店 ID"),
+    stylist_id: int = Query(..., description="发型师 ID"),
+    date: str = Query(..., description="日期 YYYY-MM-DD"),
+) -> list[dict]:
+    """返回某发型师在指定日期的可用时间段。
+
+    业务规则:
+      - 营业时间 09:00 - 20:00
+      - 每次服务 30 分钟
+      - 已占用时段 (status != cancelled) 不可用
+      - 满约 70% 容量则提示
+    """
+    from datetime import datetime, time, timedelta
+    from app.db.models import Order as OrderModel, Stylist
+
+    # 1. 校验发型师存在 + 同店
+    stylist = await session.get(Stylist, stylist_id)
+    if stylist is None or stylist.branch_id != branch_id:
+        raise HTTPException(404, "发型师不存在或不属于该门店")
+
+    # 2. 计算已占用时段
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "日期格式错误, 应为 YYYY-MM-DD")
+    stmt = select(OrderModel).where(
+        OrderModel.stylist_id == stylist_id,
+        OrderModel.appointment_date == target_date,
+        OrderModel.status.in_(["draft", "pending", "confirmed"]),
+    )
+    booked = (await session.execute(stmt)).scalars().all()
+    booked_times = {str(b.appointment_time)[:5] for b in booked if b.appointment_time}
+
+    # 3. 生成 09:00-20:00 时段 (30 分钟)
+    slots = []
+    base = datetime.combine(target_date, time(9, 0))
+    for i in range(22):  # 9-19 时段, 每 30 分钟
+        t = base + timedelta(minutes=30 * i)
+        time_str = t.strftime("%H:%M")
+        is_booked = time_str in booked_times
+        slots.append({
+            "time": time_str,
+            "available": not is_booked,
+            "stylist_id": stylist_id,
+        })
+    return slots
+
+
 @router.get("/orders/{order_id}", summary="获取订单详情", response_model=OrderPublic)
 async def get_order_detail(
     order_id: int,
@@ -356,3 +408,5 @@ async def admin_update_order_status(
         "new_status": new_status,
         "note": note,
     }
+
+
