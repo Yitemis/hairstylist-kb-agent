@@ -1,17 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
+import { listBranches } from '../../api'
 
 interface Branch {
   id: number; name: string; address: string; phone: string; lat?: string; lng?: string; maxPerDay: number; active: boolean
 }
-
-const INIT_BRANCHES: Branch[] = [
-  { id: 1, name: '三里屯旗舰店', address: '朝阳区三里屯路19号，尚街LOFT B座2层', phone: '010-8888-1234', lat: '39.9334', lng: '116.4547', maxPerDay: 30, active: true },
-  { id: 2, name: '国贸中心店',   address: '朝阳区建国路87号，CCTV旁',              phone: '010-8888-5678', lat: '39.9092', lng: '116.4607', maxPerDay: 20, active: true },
-  { id: 3, name: '西单商场店',   address: '西城区西单北大街120号',                  phone: '010-6666-8888', lat: '39.9134', lng: '116.3756', maxPerDay: 25, active: true },
-  { id: 4, name: '望京SOHO店',  address: '朝阳区望京街10号，望京SOHO T1',          phone: '010-7777-2233', lat: '40.0027', lng: '116.4719', maxPerDay: 18, active: false },
-]
 
 const EMPTY: Omit<Branch, 'id'> = { name: '', address: '', phone: '', lat: '', lng: '', maxPerDay: 20, active: true }
 
@@ -76,7 +70,7 @@ function Modal({
 }
 
 export default function BranchManagePage() {
-  const [branches, setBranches] = useState<Branch[]>(INIT_BRANCHES)
+  const [branches, setBranches] = useState<Branch[]>([])
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState<Omit<Branch, 'id'>>(EMPTY)
