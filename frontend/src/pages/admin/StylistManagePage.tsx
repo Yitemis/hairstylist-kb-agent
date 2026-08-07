@@ -4,10 +4,9 @@ import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
 
 
-const BRANCHES = ['三里屯旗舰店', '国贸中心店', '西单商场店', '望京SOHO店']
 
 type FormData = any
-const EMPTY: FormData = { name: '', branch: BRANCHES[0], skills: '', bio: '', maxHoursPerDay: 8, avatarUrl: '', active: true }
+const EMPTY: any = { name: '', branch_id: 0, skills: '', bio: '', maxHoursPerDay: 8, avatarUrl: '', active: true }
 
 function Avatar({ name, url }: { name: string; url?: string }) {
   if (url) return <img src={url} alt={name} style={{ width: 36, height: 36, borderRadius: 10, objectFit: 'cover' }} />
@@ -20,9 +19,9 @@ function Avatar({ name, url }: { name: string; url?: string }) {
   )
 }
 
-function Modal({ open, title, data, onChange, onSave, onClose }: {
+function Modal({ open, title, data, branches, onChange, onSave, onClose }: {
   open: boolean; title: string; data: FormData
-  onChange: (d: FormData) => void; onSave: () => void; onClose: () => void
+  onChange: (d: FormData) => void; onSave: () => void; onClose: () => void; branches: any[]
 }) {
   if (!open) return null
   return (
@@ -38,7 +37,7 @@ function Modal({ open, title, data, onChange, onSave, onClose }: {
           <div className="form-group">
             <label className="form-label">所属分店 *</label>
             <select className="select-field" style={{ width: '100%' }} value={data.branch_id} onChange={e => onChange({ ...data, branch: e.target.value })}>
-              {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+              {(branches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
           <div className="form-group">
@@ -169,7 +168,7 @@ export default function StylistManagePage() {
         </div>
       </div>
 
-      <Modal open={modalOpen} title={editId !== null ? '编辑发型师' : '新增发型师'} data={form} onChange={setForm} onSave={handleSave} onClose={() => setModalOpen(false)} />
+      <Modal open={modalOpen} title={editId !== null ? '编辑发型师' : '新增发型师'} data={form} branches={branches} onChange={setForm} onSave={handleSave} onClose={() => setModalOpen(false)} />
     </AdminLayout>
   )
 }
