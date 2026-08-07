@@ -14,7 +14,10 @@
       "Bash(sleep 3)",
       "Bash(nohup uvicorn app.server.api:app --host 0.0.0.0 --port 8001)",
       "Bash(echo \"PID $!\")",
-      "Bash(sleep 8)"
+      "Bash(sleep 8)",
+      "Bash(PYTHONIOENCODING=utf-8 python3 -c ' *)",
+      "Bash(npx tsc *)",
+      "Read(//e//**)"
     ],
     "additionalDirectories": [
       "\\tmp",

@@ -3,13 +3,10 @@ import { listStylists, listBranches, adminCreateStylist as createStylist, adminU
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
 
-interface Stylist {
-  id: number; name: string; branch: string; skills: string; bio: string; maxHoursPerDay: number; avatarUrl: string; active: boolean
-}
 
 const BRANCHES = ['三里屯旗舰店', '国贸中心店', '西单商场店', '望京SOHO店']
 
-type FormData = Omit<Stylist, 'id'>
+type FormData = any
 const EMPTY: FormData = { name: '', branch: BRANCHES[0], skills: '', bio: '', maxHoursPerDay: 8, avatarUrl: '', active: true }
 
 function Avatar({ name, url }: { name: string; url?: string }) {
@@ -40,7 +37,7 @@ function Modal({ open, title, data, onChange, onSave, onClose }: {
         <div style={{ padding: '20px 24px' }}>
           <div className="form-group">
             <label className="form-label">所属分店 *</label>
-            <select className="select-field" style={{ width: '100%' }} value={data.branch} onChange={e => onChange({ ...data, branch: e.target.value })}>
+            <select className="select-field" style={{ width: '100%' }} value={data.branch_id} onChange={e => onChange({ ...data, branch: e.target.value })}>
               {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
@@ -50,19 +47,19 @@ function Modal({ open, title, data, onChange, onSave, onClose }: {
           </div>
           <div className="form-group">
             <label className="form-label">头像 URL（可选）</label>
-            <input className="input-field" placeholder="https://..." value={data.avatarUrl} onChange={e => onChange({ ...data, avatarUrl: e.target.value })} />
+            <input className="input-field" placeholder="https://..." value={data.avatar || ""} onChange={e => onChange({ ...data, avatarUrl: e.target.value })} />
           </div>
           <div className="form-group">
             <label className="form-label">擅长技能（逗号分隔）*</label>
-            <input className="input-field" placeholder="烫发,染发,造型" value={data.skills} onChange={e => onChange({ ...data, skills: e.target.value })} />
+            <input className="input-field" placeholder="烫发,染发,造型" value={(data.specialties || []).join(", ")} onChange={e => onChange({ ...data, skills: e.target.value })} />
           </div>
           <div className="form-group">
             <label className="form-label">个人简介</label>
-            <textarea className="input-field" rows={3} placeholder="简单介绍发型师的风格和经验..." value={data.bio} onChange={e => onChange({ ...data, bio: e.target.value })} style={{ resize: 'vertical' }} />
+            <textarea className="input-field" rows={3} placeholder="简单介绍发型师的风格和经验..." value={data.description || ""} onChange={e => onChange({ ...data, bio: e.target.value })} style={{ resize: 'vertical' }} />
           </div>
           <div className="form-group">
             <label className="form-label">每日最大工作小时数</label>
-            <input className="input-field" type="number" min={1} max={12} value={data.maxHoursPerDay} onChange={e => onChange({ ...data, maxHoursPerDay: parseInt(e.target.value) || 1 })} />
+            <input className="input-field" type="number" min={1} max={12} value={data.max_daily_hours} onChange={e => onChange({ ...data, maxHoursPerDay: parseInt(e.target.value) || 1 })} />
           </div>
           <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label className="switch">
@@ -82,7 +79,7 @@ function Modal({ open, title, data, onChange, onSave, onClose }: {
 }
 
 export default function StylistManagePage() {
-  const [stylists, setStylists] = useState<Stylist[]>([])
+  const [stylists, setStylists] = useState<any[]>([])
   const [branches, setBranches] = useState<{ id: number; name: string }[]>([])
   useEffect(() => {
     listStylists().then((d: any) => setStylists(d as any)).catch(() => {})
@@ -93,7 +90,7 @@ export default function StylistManagePage() {
   const [form, setForm] = useState<FormData>(EMPTY)
 
   const openCreate = () => { setEditId(null); setForm(EMPTY); setModalOpen(true) }
-  const openEdit = (s: Stylist) => { setEditId(s.id); setForm({ name: s.name, branch: s.branch, skills: s.skills, bio: s.bio, maxHoursPerDay: s.maxHoursPerDay, avatarUrl: s.avatarUrl, active: s.active }); setModalOpen(true) }
+  const openEdit = (s: any) => { setEditId(s.id); setForm({ name: s.name, branch: s.branch, skills: s.skills, bio: s.bio, maxHoursPerDay: s.maxHoursPerDay, avatarUrl: s.avatarUrl, active: s.active }); setModalOpen(true) }
 
   const handleSave = () => {
     if (!form.name || !form.skills) { showToast('请填写必填项', 'error'); return }

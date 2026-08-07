@@ -3,17 +3,14 @@ import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
 import { listBranches, adminCreateBranch as createBranch, adminUpdateBranch as updateBranch, adminDeleteBranch as deleteBranch } from '../../api'
 
-interface Branch {
-  id: number; name: string; address: string; phone: string; lat?: string; lng?: string; maxPerDay: number; active: boolean
-}
 
-const EMPTY: Omit<Branch, 'id'> = { name: '', address: '', phone: '', lat: '', lng: '', maxPerDay: 20, active: true }
+const EMPTY: any = { name: '', address: '', phone: '', latitude: 0, longitude: 0, max_daily_appointments: 20, is_active: true }
 
 function Modal({
   open, title, data, onChange, onSave, onClose
 }: {
-  open: boolean; title: string; data: Omit<Branch, 'id'>
-  onChange: (d: Omit<Branch, 'id'>) => void; onSave: () => void; onClose: () => void
+  open: boolean; title: string; data: any
+  onChange: (d: any) => void; onSave: () => void; onClose: () => void
 }) {
   if (!open) return null
   return (
@@ -50,7 +47,7 @@ function Modal({
           </div>
           <div className="form-group">
             <label className="form-label">每日最大预约数</label>
-            <input className="input-field" type="number" min={1} max={200} value={data.maxPerDay} onChange={e => onChange({ ...data, maxPerDay: parseInt(e.target.value) || 1 })} />
+            <input className="input-field" type="number" min={1} max={200} value={data.max_daily_appointments} onChange={e => onChange({ ...data, maxPerDay: parseInt(e.target.value) || 1 })} />
           </div>
           <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label className="switch">
@@ -70,13 +67,13 @@ function Modal({
 }
 
 export default function BranchManagePage() {
-  const [branches, setBranches] = useState<Branch[]>([])
+  const [branches, setBranches] = useState<any[]>([])
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
-  const [form, setForm] = useState<Omit<Branch, 'id'>>(EMPTY)
+  const [form, setForm] = useState<any>(EMPTY)
 
   const openCreate = () => { setEditId(null); setForm(EMPTY); setModalOpen(true) }
-  const openEdit = (b: Branch) => { setEditId(b.id); setForm({ name: b.name, address: b.address, phone: b.phone, lat: b.lat, lng: b.lng, maxPerDay: b.maxPerDay, active: b.active }); setModalOpen(true) }
+  const openEdit = (b: any) => { setEditId(b.id); setForm({ name: b.name, address: b.address, phone: b.phone, lat: b.lat, lng: b.lng, maxPerDay: b.maxPerDay, active: b.active }); setModalOpen(true) }
 
   const handleSave = () => {
     if (!form.name || !form.address || !form.phone) { showToast('请填写必填项', 'error'); return }

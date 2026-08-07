@@ -6,9 +6,6 @@ import { showToast } from '../../utils/toast'
 type Category = '剪发' | '烫发' | '染发' | '护理' | '造型'
 const CATEGORIES: Category[] = ['剪发', '烫发', '染发', '护理', '造型']
 
-interface Service {
-  id: number; name: string; category: Category; duration: number; price: number; desc: string; active: boolean
-}
 
 const CATEGORY_COLORS: Record<Category, { bg: string; color: string }> = {
   剪发: { bg: '#eff6ff', color: '#3b82f6' },
@@ -18,7 +15,7 @@ const CATEGORY_COLORS: Record<Category, { bg: string; color: string }> = {
   造型: { bg: '#fef3c7', color: '#f59e0b' },
 }
 
-type FormData = Omit<Service, 'id'>
+type FormData = any
 const EMPTY: FormData = { name: '', category: '剪发', duration: 60, price: 0, desc: '', active: true }
 
 function Modal({ open, title, data, onChange, onSave, onClose }: {
@@ -49,7 +46,7 @@ function Modal({ open, title, data, onChange, onSave, onClose }: {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <div className="form-group">
               <label className="form-label">时长（分钟）*</label>
-              <input className="input-field" type="number" min={15} max={480} step={15} value={data.duration} onChange={e => onChange({ ...data, duration: parseInt(e.target.value) || 15 })} />
+              <input className="input-field" type="number" min={15} max={480} step={15} value={data.duration_minutes} onChange={e => onChange({ ...data, duration: parseInt(e.target.value) || 15 })} />
             </div>
             <div className="form-group">
               <label className="form-label">价格（元）*</label>
@@ -58,7 +55,7 @@ function Modal({ open, title, data, onChange, onSave, onClose }: {
           </div>
           <div className="form-group">
             <label className="form-label">服务描述</label>
-            <textarea className="input-field" rows={3} placeholder="简单描述服务内容、特点和适合人群..." value={data.desc} onChange={e => onChange({ ...data, desc: e.target.value })} style={{ resize: 'vertical' }} />
+            <textarea className="input-field" rows={3} placeholder="简单描述服务内容、特点和适合人群..." value={data.description || ""} onChange={e => onChange({ ...data, desc: e.target.value })} style={{ resize: 'vertical' }} />
           </div>
           <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label className="switch">
@@ -78,7 +75,7 @@ function Modal({ open, title, data, onChange, onSave, onClose }: {
 }
 
 export default function ServiceManagePage() {
-  const [services, setServices] = useState<Service[]>([])
+  const [services, setServices] = useState<any[]>([])
   useEffect(() => { listServices().then((d: any) => setServices(d as any)).catch(() => {}) }, [])
   const [modalOpen, setModalOpen] = useState(false)
   const [editId, setEditId] = useState<number | null>(null)
@@ -88,7 +85,7 @@ export default function ServiceManagePage() {
   const filtered = catFilter === 'all' ? services : services.filter(s => s.category === catFilter)
 
   const openCreate = () => { setEditId(null); setForm(EMPTY); setModalOpen(true) }
-  const openEdit = (s: Service) => { setEditId(s.id); setForm({ name: s.name, category: s.category, duration: s.duration, price: s.price, desc: s.desc, active: s.active }); setModalOpen(true) }
+  const openEdit = (s: any) => { setEditId(s.id); setForm({ name: s.name, category: s.category, duration: s.duration, price: s.price, desc: s.desc, active: s.active }); setModalOpen(true) }
 
   const handleSave = () => {
     if (!form.name) { showToast('请填写服务名称', 'error'); return }

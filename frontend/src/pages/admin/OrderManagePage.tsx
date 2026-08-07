@@ -1,13 +1,9 @@
 import { useState, useEffect } from 'react'
-import { adminListOrders, adminUpdateOrderStatus } from '../../api'
+import { adminListOrders, adminUpdateOrderStatus, type Order } from '../../api'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
 
 type OrderStatus = 'draft' | 'pending' | 'confirmed' | 'done' | 'cancelled'
-
-interface Order {
-  id: string; customer: string; branch: string; stylist: string; service: string; date: string; phone: string; status: OrderStatus; price: number
-}
 
 const STATUS_OPT: { value: OrderStatus; label: string; cls: string }[] = [
   { value: 'pending',   label: '待确认', cls: 'badge badge-pending' },
@@ -36,8 +32,8 @@ function StatusSelect({ value, onChange }: { value: OrderStatus; onChange: (v: O
 }
 
 export default function OrderManagePage() {
-  const [orders, setOrders] = useState<Order[]>([])
-  useEffect(() => { adminListOrders().then((data: any) => setOrders(data as any)).catch(() => {}) }, [])
+  const [orders, setOrders] = useState<any[]>([])
+  useEffect(() => { adminListOrders().then((data: any[]) => setOrders(data as any[])).catch(() => {}) }, [])
   const [filter, setFilter] = useState<'all' | OrderStatus>('all')  // 'all' + 5 status
   const [page, setPage] = useState(1)
 
@@ -114,13 +110,13 @@ export default function OrderManagePage() {
                   const s = STATUS_OPT.find(x => x.value === order.status)!
                   return (
                     <tr key={order.id} className="animate-fade-up">
-                      <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#94a3b8' }}>{order.id.split('-').slice(-1)[0]}</td>
-                      <td style={{ fontWeight: 500 }}>{order.customer}</td>
-                      <td>{order.branch}</td>
-                      <td>{order.stylist}</td>
-                      <td>{order.service}</td>
-                      <td style={{ fontSize: 13, color: '#64748b', whiteSpace: 'nowrap' }}>{order.date}</td>
-                      <td style={{ fontSize: 13, color: '#64748b' }}>{order.phone}</td>
+                      <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#94a3b8' }}>{String(order.id).split('-').slice(-1)[0]}</td>
+                      <td style={{ fontWeight: 500 }}>{order.customer_name || order.customer_phone}</td>
+                      <td>{order.branch_name}</td>
+                      <td>{order.stylist_name || "待分配"}</td>
+                      <td>{order.service_type}</td>
+                      <td style={{ fontSize: 13, color: '#64748b', whiteSpace: 'nowrap' }}>{order.appointment_date} {order.appointment_time || ""}</td>
+                      <td style={{ fontSize: 13, color: '#64748b' }}>{order.customer_phone}</td>
                       <td><span className={s.cls}>{s.label}</span></td>
                       <td>
                         <StatusSelect value={order.status} onChange={v => handleStatusChange(order.id, v)} />

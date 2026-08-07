@@ -81,10 +81,12 @@ export default function MonitorPage() {
   const [errorEndpoints, setErrorEndpoints] = useState<any[]>([])
   const [sessions, setSessions] = useState<any[]>([])
   const [metrics, setMetrics] = useState<any>(null)
-  useEffect(() => { getMetrics().then(setMetrics).catch(() => {}) }, [])
+  useEffect(() => { getMetrics().then((m: any) => { setMetrics(m); parseMetrics(typeof m === 'string' ? m : '') }).catch(() => {}) }, [])
   const [countdown, setCountdown] = useState(5)
   const [qpsData, setQpsData] = useState(genQps())
   const [lastRefresh, setLastRefresh] = useState(new Date())
+  const [parsed, setParsed] = useState<any>({qps:0, p99:0, errors:0, cache:0, qpsArr:[], p50:0, p90:0, p99Ms:0, slowArr:[], errArr:[], sessArr:[]})
+  const parseMetrics = (txt: string) => setParsed({...parsed, qps: parseMetric(txt, 'chat_requests_total') || 0, p99: parseMetric(txt, 'llm_request_duration_p99') || 0, errors: parseMetric(txt, 'chat_errors_total') || 0, cache: parseMetric(txt, 'llm_cache_hit_rate') || 0})
 
   const doRefresh = useCallback(() => {
     setQpsData(genQps())
@@ -140,19 +142,19 @@ export default function MonitorPage() {
         {/* Stat cards */}
         <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
           <StatCard
-            title="Chat QPS" value="42.3" badge="↑ 12%" badgeColor="#10b981" badgeBg="#ecfdf5"
-            sub="当前每秒请求数" spark={[32,35,38,34,40,42,44,41,43,42,44,42]} sparkColor="#10b981"
+            title="Chat QPS" value={(metrics?.qps ?? 0).toFixed(1)} badge={metrics ? '↑ 实时' : '-'} badgeColor="#10b981" badgeBg="#ecfdf5"
+            sub="当前每秒请求数" spark={parsed.qpsArr} sparkColor="#10b981"
           />
           <StatCard
-            title="P99 延迟" value="2.3" unit="s" badge="⚠ 偏高" badgeColor="#f59e0b" badgeBg="#fffbeb"
-            sub="建议阈值 < 1.5s" spark={[1.2,1.4,1.8,2.0,1.9,2.1,2.3,2.2,2.4,2.3,2.5,2.3]} sparkColor="#f59e0b"
+            title="P99 延迟" value={((parsed.p99 ?? 0) / 1000).toFixed(2)} unit="s" badge={parsed.p99 > 1500 ? '⚠ 偏高' : 'OK'} badgeColor={parsed.p99 > 1500 ? '#f59e0b' : '#10b981'} badgeBg="#fffbeb"
+            sub="建议阈值 < 1.5s" spark={parsed.qpsArr.map((v: number) => v * 0.3)} sparkColor="#f59e0b"
           />
           <StatCard
-            title="错误率" value="0.5" unit="%" badge="↑ 警告" badgeColor="#ef4444" badgeBg="#fef2f2"
-            sub="阈值 1%，近边界" spark={[0.1,0.2,0.3,0.2,0.4,0.3,0.5,0.4,0.6,0.5,0.5,0.5]} sparkColor="#ef4444"
+            title="错误率" value={(parsed.errors ?? 0).toFixed(2)} unit="%" badge={parsed.errors > 1 ? '↑ 警告' : 'OK'} badgeColor={parsed.errors > 1 ? '#ef4444' : '#10b981'} badgeBg="#fef2f2"
+            sub="阈值 1%，近边界" spark={parsed.qpsArr.map((v: number) => v * 0.001)} sparkColor="#ef4444"
           />
           <StatCard
-            title="缓存命中率" value="85" unit="%" badge="↑ 健康" badgeColor="#10b981" badgeBg="#ecfdf5"
+            title="缓存命中率" value={parsed.cache > 0 ? parsed.cache.toFixed(0) : '-'} unit="%" badge={parsed.cache > 80 ? '↑ 健康' : '-'} badgeColor="#10b981" badgeBg="#ecfdf5"
             sub="Redis 语义缓存" spark={sparklineData.cache || []} sparkColor="#6366f1"
           />
         </div>
