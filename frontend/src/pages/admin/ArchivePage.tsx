@@ -11,19 +11,6 @@ interface ArchiveRecord {
   id: string; time: string; type: ArchiveType; count: number; savedMb: number; durationSec: number; status: ArchiveStatus
 }
 
-const RECORDS: ArchiveRecord[] = [
-  { id: 'arc-001', time: '2026-08-05 03:00:12', type: 'chat',  count: 12480, savedMb: 48.3,  durationSec: 42,  status: 'success' },
-  { id: 'arc-002', time: '2026-08-05 03:00:55', type: 'order', count: 3200,  savedMb: 12.7,  durationSec: 18,  status: 'success' },
-  { id: 'arc-003', time: '2026-07-29 03:00:08', type: 'chat',  count: 11950, savedMb: 46.1,  durationSec: 39,  status: 'success' },
-  { id: 'arc-004', time: '2026-07-29 03:00:48', type: 'order', count: 2980,  savedMb: 11.8,  durationSec: 15,  status: 'success' },
-  { id: 'arc-005', time: '2026-07-22 03:00:04', type: 'chat',  count: 13200, savedMb: 51.0,  durationSec: 47,  status: 'success' },
-  { id: 'arc-006', time: '2026-07-22 03:01:32', type: 'order', count: 3450,  savedMb: 13.5,  durationSec: 23,  status: 'failed'  },
-  { id: 'arc-007', time: '2026-07-15 03:00:01', type: 'chat',  count: 10800, savedMb: 41.6,  durationSec: 35,  status: 'success' },
-  { id: 'arc-008', time: '2026-07-15 03:00:37', type: 'order', count: 2670,  savedMb: 10.5,  durationSec: 14,  status: 'success' },
-  { id: 'arc-009', time: '2026-07-08 03:00:09', type: 'chat',  count: 9900,  savedMb: 38.2,  durationSec: 32,  status: 'success' },
-  { id: 'arc-010', time: '2026-07-08 03:00:41', type: 'order', count: 2410,  savedMb: 9.4,   durationSec: 12,  status: 'success' },
-]
-
 const PAGE_SIZE = 5
 
 function StatCard({ icon, label, value, sub, accent }: { icon: string; label: string; value: string; sub: string; accent?: string }) {
@@ -43,6 +30,7 @@ export default function ArchivePage() {
     const [confirm, setConfirm] = useState(false)
   const [stats, setStats] = useState(null)
   const [archiving, setArchiving] = useState(false)
+  const [records, setRecords] = useState<ArchiveRecord[]>([])
   useEffect(() => { getArchiveStats().then(setStats).catch(()=>{}) }, [])
   async function doArchive() {
     setArchiving(true)
@@ -55,8 +43,8 @@ export default function ArchivePage() {
   }
 
   const [page, setPage] = useState(1)
-  const totalPages = Math.ceil(RECORDS.length / PAGE_SIZE)
-  const paged = RECORDS.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.ceil(records.length / PAGE_SIZE)
+  const paged = records.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
   const handleArchive = async () => {
     setConfirm(false)
@@ -153,7 +141,7 @@ export default function ArchivePage() {
 
           {/* Pagination */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid #f1f5f9' }}>
-            <p style={{ fontSize: 13, color: '#64748b' }}>共 {RECORDS.length} 条记录</p>
+            <p style={{ fontSize: 13, color: '#64748b' }}>共 {records.length} 条记录</p>
             <div className="pagination">
               <button className="page-btn" disabled={page === 1} onClick={() => setPage(p => p - 1)}>
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M7.5 2L4 6L7.5 10" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/></svg>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import HitlConfirm from '../../components/HitlConfirm'
 import { showToast } from '../../utils/toast'
@@ -13,15 +13,6 @@ interface MemoryItem {
   content: string
   confidence: number   // 0–1
 }
-
-const INIT_MEMORIES: MemoryItem[] = [
-  { id: 'm1', category: 'preference', label: '发型偏好',  content: '喜欢自然系大波浪烫，不要太紧的卷', confidence: 0.92 },
-  { id: 'm2', category: 'location',   label: '常去门店',  content: '三里屯旗舰店（朝阳区）',           confidence: 0.85 },
-  { id: 'm3', category: 'person',     label: '指定发型师', content: '陈晓磊，10年经验烫发专家',         confidence: 0.78 },
-  { id: 'm4', category: 'preference', label: '预约习惯',  content: '偏好周六上午10:00档期',            confidence: 0.66 },
-  { id: 'm5', category: 'preference', label: '发质类型',  content: '细软发，容易塌，多孔性中等',        confidence: 0.54 },
-  { id: 'm6', category: 'preference', label: '价格范围',  content: '单次预算 500–800 元',              confidence: 0.38 },
-]
 
 const CATEGORY_ICONS: Record<MemoryCategory, React.ReactNode> = {
   person: (
@@ -60,16 +51,36 @@ function ConfidenceBar({ value }: { value: number }) {
 
 export default function MemoryPage() {
   const nav = useNavigate()
-  const [memories, setMemories] = useState<MemoryItem[]>(INIT_MEMORIES)
+  const [memories, setMemories] = useState<MemoryItem[]>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    listUserFacts().then((facts) => {
+      setMemories(facts.map((f) => ({
+        id: f.fact_key, category: guessCategory(f.fact_key), label: f.fact_key,
+        content: f.fact_value, confidence: f.confidence,
+      })))
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [])
+  function guessCategory(key: string): MemoryCategory {
+    if (key.includes("stylist") || key.includes("person")) return "person"
+    if (key.includes("location") || key.includes("branch")) return "location"
+    return "preference"
+  }
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [clearAll, setClearAll] = useState(false)
   const [hoverDeleteId, setHoverDeleteId] = useState<string | null>(null)
   const [showInfo, setShowInfo] = useState(false)
 
-  const handleDeleteOne = (id: string) => {
-    setMemories(prev => prev.filter(m => m.id !== id))
-    setDeleteTargetId(null)
-    showToast('记忆已删除', 'info')
+  const handleDeleteOne = async (id: string) => {
+    try {
+      await deleteUserFact(id)
+      setMemories(prev => prev.filter(m => m.id !== id))
+      setDeleteTargetId(null)
+      showToast('记忆已删除', 'info')
+    } catch (e: any) {
+      showToast(e?.message || '删除失败', 'error')
+    }
   }
 
   const handleClearAll = () => {

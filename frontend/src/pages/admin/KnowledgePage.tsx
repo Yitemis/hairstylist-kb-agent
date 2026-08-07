@@ -13,33 +13,6 @@ interface Session {
 }
 
 /* ── Data ───────────────────────────────────────────────── */
-const SESSIONS: Session[] = [
-  { id: '1', title: '烫发化学原理', preview: '二硫键的断裂与重组...', time: '刚刚' },
-  { id: '2', title: '发质损伤修复', preview: '角蛋白护理方案推荐', time: '2h前' },
-  { id: '3', title: '染发配方计算', preview: '氧化剂比例与发色关系', time: '昨天' },
-  { id: '4', title: '头皮护理流程', preview: '油性头皮的控油策略', time: '昨天' },
-  { id: '5', title: '剪发技法分析', preview: '层次剪与渐变剪对比', time: '3天前' },
-]
-
-const SOURCES: Source[] = [
-  { id: 's1', title: '美发化学基础手册', excerpt: '烫发过程分为两个阶段：软化期使用含有巯基乙酸的还原剂打开二硫键，定型期使用氧化剂（如溴酸钠）重新形成新位置的二硫键，从而固定新的卷曲形态。', page: '第 42 页', icon: '📗' },
-  { id: 's2', title: '发型师专业认证教材', excerpt: '角蛋白链通过二硫键交联维持头发的强度与形态。永久烫发彻底改变这些键的位置，而半永久处理仅暂时改变氢键，会随清洗逐渐恢复。', page: '第 87 页', icon: '📘' },
-]
-
-const INIT_MESSAGES: Message[] = [
-  { id: 'm1', role: 'user', content: '你好，我想了解一下烫发的化学原理，特别是二硫键是如何被改变的？', timestamp: '14:22' },
-  {
-    id: 'm2', role: 'assistant', timestamp: '14:22',
-    content: '烫发的核心原理围绕头发中的**二硫键（S–S 键）**展开。头发的主要成分是角蛋白，角蛋白链之间通过大量二硫键交联，赋予头发强度和自然形态。\n\n整个烫发过程分为两个关键阶段：\n\n**① 软化阶段（还原）**\n涂抹含**巯基乙酸铵**的烫发水，它作为还原剂断开二硫键，将头发从固定形态"解放"出来，此时头发变得柔软可塑。\n\n**② 定型阶段（氧化）**\n将头发固定在新形态后，涂抹定型液（含溴酸钠或过氧化氢），重新形成二硫键——但这次是在新位置，从而永久固定卷曲形态。\n\n需要注意的是，频繁烫发会累积损伤毛鳞片和皮质层，建议间隔至少 **6 个月**。',
-    sources: SOURCES,
-  },
-  { id: 'm3', role: 'user', content: '如果客户本身发质比较细软，烫发前需要做什么特殊处理吗？', timestamp: '14:24' },
-  {
-    id: 'm4', role: 'assistant', timestamp: '14:25',
-    content: '细软发质烫发前的处理非常关键，操作不当容易过度损伤。以下是专业建议：\n\n**🔍 发质评估**\n先做毛鳞片检测，判断发质的多孔程度。细软发通常多孔，吸收化学品速度更快。\n\n**💊 前处理方案**\n• 补充角蛋白：提前 1–2 周做一次角蛋白护理，增加发丝密度\n• 降低化学品浓度：选用温和型烫发水（pH 值控制在 8.0–8.5）\n• 缩短软化时间：比正常发质缩短 20–30%，每 5 分钟检查一次弹性\n\n细软发建议选择**数码烫**而非冷烫，温度控制更精准，且产品渗透更均匀，最终效果更持久。',
-  },
-]
-
 function makeId() { return Math.random().toString(36).slice(2) }
 function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
 
@@ -132,7 +105,8 @@ function MsgBubble({ msg }: { msg: Message }) {
 }
 
 export default function KnowledgePage() {
-  const [messages, setMessages] = useState<Message[]>(INIT_MESSAGES)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [sessions, setSessions] = useState<any[]>([])
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
   const [activeSession, setActiveSession] = useState('1')
@@ -161,7 +135,7 @@ export default function KnowledgePage() {
     setMessages(prev => [...prev, {
       id: makeId(), role: 'assistant', timestamp: nowTime(),
       content: '感谢您的提问！根据知识库中的专业资料，我为您整理了详细解答。如需进一步了解，请随时追问。',
-      sources: [SOURCES[0]],
+      sources: [],
     }])
   }
 
@@ -180,7 +154,7 @@ export default function KnowledgePage() {
           </div>
           <p style={{ fontSize: 11, color: '#94a3b8', padding: '10px 14px 6px', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>最近对话</p>
           <div className="flex-1 scrollbar-thin" style={{ overflowY: 'auto', padding: '0 8px 8px' }}>
-            {SESSIONS.map(s => (
+            {sessions.map(s => (
               <button
                 key={s.id}
                 onClick={() => setActiveSession(s.id)}

@@ -25,17 +25,6 @@ interface Message {
   error?: boolean
 }
 
-/* ── Mock data ──────────────────────────────────────── */
-const BRANCHES: CardItem[] = [
-  { id: 'b1', title: '三里屯旗舰店', subtitle: '朝阳区三里屯路19号', badge: '5 位发型师' },
-  { id: 'b2', title: '国贸中心店',   subtitle: '朝阳区建国路87号',   badge: '3 位发型师' },
-  { id: 'b3', title: '西单商场店',   subtitle: '西城区西单北大街120号', badge: '4 位发型师' },
-]
-const STYLISTS: CardItem[] = [
-  { id: 's1', title: '陈晓磊', subtitle: '擅长烫发·染发·10年经验', badge: '¥200/h' },
-  { id: 's2', title: '王芳芳', subtitle: '擅长剪发·造型·8年经验',  badge: '¥160/h' },
-  { id: 's3', title: '刘志远', subtitle: '擅长染色·护理·6年经验',  badge: '¥140/h' },
-]
 function makeId() { return Math.random().toString(36).slice(2) }
 function nowTime() { return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) }
 
