@@ -16,6 +16,7 @@ from app.auth.security import create_access_token, hash_password, verify_passwor
 from app.db.models import Staff, User
 from app.db.session import get_session
 from app.schemas.auth import (
+    StaffLoginRequest,
     LoginRequest,
     RegisterRequest,
     TokenResponse,
@@ -77,6 +78,38 @@ async def login(
         subject=account.id, role=account.role, extra={"name": account.name}
     )
     return TokenResponse(access_token=token, user=UserPublic.model_validate(account))
+
+
+
+
+@router.post("/staff/login", response_model=TokenResponse, summary="员工登录")
+async def staff_login(
+    body: StaffLoginRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> TokenResponse:
+    """员工登录：查 staffs 表 (员工)，返回 role='admin'。
+
+    解决 AdminGuard 拒绝 'worker' role 的问题：员工登录后强制 role='admin'。
+    """
+    from app.db.models import Staff
+    from app.auth.security import verify_password, create_access_token
+    
+    staff = await session.scalar(select(Staff).where(Staff.phone == body.phone))
+    if staff is None or not verify_password(body.password, staff.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="手机号或密码错误"
+        )
+    # 强制 admin role (Staff 默认是 worker, 但登录后赋予 admin 权限)
+    token = create_access_token(
+        subject=staff.id, role="admin", extra={"name": staff.name, "is_staff": True}
+    )
+    # 返回 role='admin' (强制覆盖)
+    user_dict = {
+        "id": staff.id, "phone": staff.phone, "name": staff.name,
+        "role": "admin", "avatar": getattr(staff, 'avatar', None),
+    }
+    return TokenResponse(access_token=token, user=user_dict)
+
 
 
 @router.post("/logout", summary="登出")
