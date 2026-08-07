@@ -1,6 +1,4 @@
-# ============================================
 # Python
-# ============================================
 __pycache__/
 *.py[cod]
 *$py.class
@@ -9,97 +7,42 @@ __pycache__/
 build/
 dist/
 *.egg-info/
-.eggs/
-*.egg
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# 虚拟环境
+# Virtual env
 .venv/
 venv/
 env/
-ENV/
-
-# 测试覆盖率
-.coverage
-.pytest_cache/
-.tox/
-htmlcov/
-.mypy_cache/
-.ruff_cache/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
 *~
-.DS_Store
-Thumbs.db
 
-# ============================================
-# 环境变量 / 密钥
-# ============================================
-.env
-.env.local
-.env.production
-*.pem
-*.key
-
-# ============================================
-# 数据 / 缓存 / 运行时产物
-# ============================================
-data/app.db
-data/app.db-journal
-data/app.db-wal
-data/app.db-shm
+# 业务数据 (运行时产生, 不入库)
 data/agent_state/
-data/knowledge/
-data/qdrant/
-data/qdrant-bin/
-data/milvus/
 data/downloads/
-*.sqlite
-*.sqlite3
+data/knowledge/
+data/*.db
+data/*.sqlite
+data/*.sqlite3
 
-# 用户上传 / 临时文件
-uploads/
+# 临时目录 (开发用, 启动时生成)
 tmp/
-temp/
+.agent_tmp/
+
+# 上传临时文件
+.env.tmp
+.env.bak
+
+# 日志
 *.log
-*.pid
+logs/
 
-# ============================================
-# 前端
-# ============================================
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-frontend/build/
-frontend/.cache/
-frontend/coverage/
-frontend/.env
-frontend/.env.local
-frontend/package-lock.json
-frontend/yarn.lock
-
-# ============================================
-# 文档中的临时文件
-# ============================================
-docs/TEMP_*
-docs/LONG_TERM_MEMORY_AI_AGENT.md  # 个人 AI 学习笔记（不入仓）
-=2.0.0
-
-# 开发启动脚本
-data/*.sh
-data/start_milvus_wsl.sh
-
-# IDE / OS
-.DS_Store
-*.swp
-*.swo
-*~
-
-# 临时目录 (开发用)
-tmp/
-
-# 临时文件
-*.tmp
+# 测试数据
+tests/fixtures/*.pdf.bak
