@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Query, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -99,3 +99,42 @@ async def delete_branch(
     branch.is_active = False
     await session.commit()
     return {"status": "ok", "message": f"已下架分店 {branch.name}"}
+
+
+@router.get("/branches/nearby", summary="按距离查找最近分店")
+async def list_branches_nearby(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    lat: float = Query(..., ge=-90, le=90, description="用户纬度"),
+    lng: float = Query(..., ge=-180, le=180, description="用户经度"),
+    only_active: bool = True,
+) -> list[BranchPublic]:
+    """按距离从近到远返回分店（用户端选预约用）。
+
+    - 使用 Haversine 公式计算球面距离
+    - 距离单位：米
+    - 如果分店没经纬度，按 ID 顺序排后面
+    """
+    import math
+
+    def haversine(lat1, lon1, lat2, lon2):
+        R = 6371000  # 地球半径 (米)
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlam = math.radians(lon2 - lon1)
+        a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+        return 2 * R * math.asin(math.sqrt(a))
+
+    stmt = select(Branch)
+    if only_active:
+        stmt = stmt.where(Branch.is_active == True)
+    result = await session.execute(stmt)
+    branches = list(result.scalars().all())
+
+    # 按距离排序
+    def distance(b):
+        if b.latitude is None or b.longitude is None:
+            return float("inf")
+        return haversine(lat, lng, float(b.latitude), float(b.longitude))
+
+    branches.sort(key=distance)
+    return [BranchPublic.model_validate(b) for b in branches]

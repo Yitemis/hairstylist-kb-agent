@@ -119,6 +119,11 @@ export interface Branch {
   is_active: boolean
 }
 
+export async function listBranchesNearby(lat: number, lng: number) {
+  const r = await request<Branch[]>(`/api/branches/nearby?lat=${lat}&lng=${lng}`)
+  return r.data || []
+}
+
 export async function listBranches() {
   return request<Branch[]>('/api/branches', {
     method: 'GET',

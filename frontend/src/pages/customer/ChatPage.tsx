@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getUser, clearAuth } from '../../utils/auth'
-import { sendChat, listBranches, listStylists, createOrder, getAvailableSlots, type ChatOption } from '../../utils/api'
+import { sendChat, listBranches, listBranchesNearby, listStylists, createOrder, getAvailableSlots, type ChatOption } from '../../utils/api'
 import { showToast } from '../../utils/toast'
 
 /* ── Types ─────────────────────────────────────────── */
@@ -204,6 +204,28 @@ export default function CustomerChatPage() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streamState])
 
+  // 浏览器 Geolocation 拿用户位置 (失败降级)
+  const getUserLocation = (): Promise<{ lat: number; lng: number } | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve(null)
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null),
+        { timeout: 5000, maximumAge: 60000 },
+      )
+    })
+  }
+
+  // 计算两点距离 (km, 用 Haversine)
+  const haversineKm = (a: { lat: number; lng: number }, b: { lat: number; lng: number }) => {
+    const R = 6371
+    const dLat = (b.lat - a.lat) * Math.PI / 180
+    const dLng = (b.lng - a.lng) * Math.PI / 180
+    const x = Math.sin(dLat / 2) ** 2 +
+      Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+    return 2 * R * Math.asin(Math.sqrt(x))
+  }
+
   /* SSE simulation */
   const streamAiReply = async (idx: number, extraCards?: CardItem[]) => {
     stopRef.current = false
@@ -255,13 +277,31 @@ export default function CustomerChatPage() {
       // save the mode (e.g. booking) on the bubble
       setMessages(prev => prev.map(m => m.id === msgId ? { ...m, streamingText: undefined, text: acc, stats: { tokens: Math.round(acc.length * 0.72 + 12), ms }, mode: mode } : m))
 
-      // booking mode → show branch cards (and on first hit, fetch from /api/branches if not given)
+      // booking mode → 按用户位置取最近分店
       if (mode === 'booking' && options.length === 0) {
         try {
-          const r = await listBranches()
-          const list = r.data || []
-          const cards: CardItem[] = list.map((b: any) => ({ id: String(b.id), title: b.name, subtitle: b.address || '', badge: b.is_active !== false ? '营业中' : '已下架' }))
+          const loc = await getUserLocation()
+          let list: any[] = []
+          if (loc) {
+            const r = await listBranchesNearby(loc.lat, loc.lng)
+            list = r || []
+          } else {
+            // 拒绝定位/无定位 → 降级到全部分店
+            const r = await listBranches()
+            list = r.data || []
+          }
+          const cards: CardItem[] = list.map((b: any) => {
+            let badge = b.is_active !== false ? '营业中' : '已下架'
+            if (loc && b.latitude != null && b.longitude != null) {
+              const km = haversineKm(loc, { lat: Number(b.latitude), lng: Number(b.longitude) })
+              badge = km < 1 ? `营业中 · ${Math.round(km * 1000)} m` : `营业中 · ${km.toFixed(1)} km`
+            }
+            return { id: String(b.id), title: b.name, subtitle: b.address || '', badge }
+          })
           setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'card-list', cards, time: nowTime() }])
+          if (loc) {
+            setMessages(prev => [...prev, { id: makeId(), role: 'ai', type: 'text', time: nowTime(), text: '📍 已按你的位置显示最近的分店' }])
+          }
         } catch (e) { /* silent */ }
       } else if (options.length > 0) {
         const cards: CardItem[] = options.map((o: ChatOption) => ({ id: String(o.id || o.title), title: o.title, subtitle: o.subtitle || '', badge: o.badge }))
