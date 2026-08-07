@@ -287,8 +287,7 @@ export default function CustomerChatPage() {
             list = r || []
           } else {
             // 拒绝定位/无定位 → 降级到全部分店
-            const r = await listBranches()
-            list = r.data || []
+            list = await listBranches()
           }
           const cards: CardItem[] = list.map((b: any) => {
             let badge = b.is_active !== false ? '营业中' : '已下架'
