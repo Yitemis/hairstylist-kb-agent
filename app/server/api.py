@@ -781,6 +781,18 @@ async def _chat_handler(body: dict, ctx) -> dict:
                     if "source" in k.lower():
                         sources.append(v)
 
+            # 额外 retrieve 一次拿真实 sources（修复 sources=0 bug）
+            try:
+                from app.rag.v2_engine import retrieve as _rag_retrieve
+                _rag = await _rag_retrieve(query=message, tenant_id=str(user_id), top_k=3)
+                if _rag.hits:
+                    sources = [{"document_id": h.document_id, "score": round(h.score, 4), "content": (h.content or "")[:300]} for h in _rag.hits]
+                    if not text and _rag.hits:
+                        # Agent 没回话时，把 RAG 拿到的当答案
+                        text = chr(10).join([f"【{i+1}】{h.content}" for i, h in enumerate(_rag.hits[:3])])
+            except Exception as _e:
+                logger.warning("knowledge RAG retrieve 失败: %s", _e)
+
             if not text:
                 text = "（Agent 返回空）"
             await _save_ai_message(user_id, text, mode="knowledge")

@@ -28,16 +28,6 @@ interface QueryRow {
 }
 
 const ALL_ROWS: QueryRow[] = [
-  { id: 'q1', query: '烫发后如何护理避免发质受损？',      category: 'knowledge',  recall: 0.91, mrr: 0.88, latencyMs: 145, docs: ['美发化学基础手册 §3.2 — 烫后护理要点', '发型师专业认证教材 §7.4 — 客户护理指导'] },
-  { id: 'q2', query: '三里屯店周六下午有空档吗？',          category: 'booking',    recall: 0.84, mrr: 0.80, latencyMs: 92,  docs: ['实时预约系统 — 三里屯旗舰店 2025-07-05 档期'] },
-  { id: 'q3', query: '帮我看看这张图的发型适合烫吗',        category: 'multimodal', recall: 0.76, mrr: 0.71, latencyMs: 320, docs: ['美发图像分析模型输出', '发型适配数据库 §2.1'] },
-  { id: 'q4', query: '你今天心情怎么样？',                  category: 'casual',     recall: 0.42, mrr: 0.35, latencyMs: 58,  docs: ['通用聊天兜底策略'] },
-  { id: 'q5', query: '染发用多少度数双氧水合适？',          category: 'knowledge',  recall: 0.89, mrr: 0.85, latencyMs: 128, docs: ['发色科学与配方指南 §4.3 — 氧化剂浓度选择'] },
-  { id: 'q6', query: '陈晓磊发型师的专长是什么？',          category: 'booking',    recall: 0.81, mrr: 0.77, latencyMs: 104, docs: ['发型师档案库 — 陈晓磊个人资料'] },
-  { id: 'q7', query: '给我推荐一个适合圆脸的发型',          category: 'knowledge',  recall: 0.62, mrr: 0.55, latencyMs: 198, docs: ['脸型发型匹配指南 §1.5', '流行发型数据库 2025 Q3'] },
-  { id: 'q8', query: '头皮痒是什么原因？',                  category: 'knowledge',  recall: 0.33, mrr: 0.28, latencyMs: 175, docs: ['头皮健康护理手册 §2.1 — 瘙痒成因'] },
-  { id: 'q9', query: '预约取消需要提前多少时间？',          category: 'booking',    recall: 0.79, mrr: 0.74, latencyMs: 89,  docs: ['预约规则手册 §6 — 取消政策'] },
-  { id: 'q10',query: '发图片给你分析一下我的发质',          category: 'multimodal', recall: 0.68, mrr: 0.61, latencyMs: 295, docs: ['发质分析模型', '多孔性检测标准 §3'] },
 ]
 
 /* ── Helpers ──────────────────────────────────────────── */

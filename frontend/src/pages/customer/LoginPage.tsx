@@ -134,7 +134,7 @@ export default function CustomerLoginPage() {
           className="w-full mt-3 text-sm"
           style={{ background: 'none', border: 'none', color: '#94a3b8', padding: '8px 0' }}
           onClick={() => {
-            setPhone('13800138000')
+            // demo phone removed
             setPassword('123456')
           }}
         >

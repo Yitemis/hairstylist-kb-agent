@@ -116,13 +116,7 @@ export default function AdminLoginPage() {
             }
           </button>
 
-          <button
-            className="w-full"
-            style={{ marginTop: 12, background: 'none', border: 'none', color: '#94a3b8', fontSize: 13, cursor: 'pointer', padding: '6px 0' }}
-            onClick={() => { setPhone('13800138001'); setPassword('admin123') }}
-          >
-            使用演示账号填充
-          </button>
+          
         </div>
 
         <p style={{ textAlign: 'center', color: '#cbd5e1', fontSize: 12, marginTop: 20 }}>

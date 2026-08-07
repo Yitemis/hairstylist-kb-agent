@@ -1,3 +1,10 @@
+function parseMetric(metrics: any, name: string): number {
+  if (!metrics) return 0
+  const re = new RegExp(name + '\s+([\d.]+)', 'i')
+  const m = metrics.match(re)
+  return m ? parseFloat(m[1]) : 0
+}
+
 import { useState, useEffect, useCallback } from 'react'
 import AdminLayout from '../../components/admin/AdminLayout'
 import { showToast } from '../../utils/toast'
@@ -60,37 +67,19 @@ function genQps(): { t: string; qps: number }[] {
   }))
 }
 
-const LATENCY_DATA = [
-  { label: 'p50', p50: 120, p90: 0, p99: 0 },
-  { label: 'p90', p50: 0, p90: 280, p99: 0 },
-  { label: 'p99', p50: 0, p90: 0, p99: 2300 },
-]
+// LATENCY_DATA mock removed
 
-const SLOW_QUERIES = [
-  { endpoint: 'POST /api/rag/query — 发图片给你分析发质',  ms: 3240 },
-  { endpoint: 'POST /api/rag/query — 多模态图像检索请求',  ms: 2980 },
-  { endpoint: 'POST /api/chat/complete — 染色配方咨询',    ms: 2450 },
-  { endpoint: 'GET  /api/orders/search — 历史订单全量查',  ms: 1870 },
-  { endpoint: 'POST /api/knowledge/embed — 新增文档嵌入',  ms: 1650 },
-]
-const ERROR_ENDPOINTS = [
-  { endpoint: 'POST /api/rag/query',          rate: '1.8%' },
-  { endpoint: 'POST /api/image/analyze',      rate: '3.2%' },
-  { endpoint: 'POST /api/auth/refresh',       rate: '0.4%' },
-  { endpoint: 'GET  /api/branches/available', rate: '0.2%' },
-  { endpoint: 'POST /api/booking/create',     rate: '0.1%' },
-]
-const SESSIONS = [
-  { endpoint: '活跃 WebSocket 连接',   count: 218 },
-  { endpoint: 'SSE 流式会话',          count: 43 },
-  { endpoint: '今日独立用户',           count: 387 },
-  { endpoint: '本小时新建会话',         count: 64 },
-  { endpoint: '平均会话时长',           count: 12, unit: 'min' },
-]
+// slowQueries mock removed
+// errorEndpoints mock removed
+// sessions mock removed
 
 /* ── Page ───────────────────────────────────────────────── */
 export default function MonitorPage() {
   const [sparklineData, setSparklineData] = useState<any>({cache: [], chat_qps: [], errors: []})
+  const [latencyBars, setLatencyBars] = useState<any[]>([])
+  const [slowQueries, setSlowQueries] = useState<any[]>([])
+  const [errorEndpoints, setErrorEndpoints] = useState<any[]>([])
+  const [sessions, setSessions] = useState<any[]>([])
   const [metrics, setMetrics] = useState<any>(null)
   useEffect(() => { getMetrics().then(setMetrics).catch(() => {}) }, [])
   const [countdown, setCountdown] = useState(5)
@@ -188,7 +177,7 @@ export default function MonitorPage() {
           <div className="card" style={{ padding: '18px 22px' }}>
             <p style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', marginBottom: 14 }}>RAG 检索延迟分布</p>
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={LATENCY_DATA} margin={{ top: 4, right: 12, bottom: 4, left: 0 }}>
+              <BarChart data={latencyBars} margin={{ top: 4, right: 12, bottom: 4, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={36} unit="ms" />
@@ -207,7 +196,7 @@ export default function MonitorPage() {
           {/* Slow queries */}
           <div className="card" style={{ padding: '18px 20px' }}>
             <p style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', marginBottom: 14 }}>🐢 Top 5 慢查询</p>
-            {SLOW_QUERIES.map((q, i) => (
+            {slowQueries.map((q, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12 }}>
                 <span style={{ width: 20, height: 20, borderRadius: 6, background: i < 2 ? '#fef2f2' : '#fffbeb', color: i < 2 ? '#ef4444' : '#f59e0b', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i+1}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -221,7 +210,7 @@ export default function MonitorPage() {
           {/* Error endpoints */}
           <div className="card" style={{ padding: '18px 20px' }}>
             <p style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', marginBottom: 14 }}>❌ Top 5 错误端点</p>
-            {ERROR_ENDPOINTS.map((e, i) => (
+            {errorEndpoints.map((e, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <p style={{ fontSize: 12, color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{e.endpoint}</p>
                 <span style={{ fontSize: 12, fontWeight: 700, color: parseFloat(e.rate) > 1 ? '#ef4444' : '#f59e0b', marginLeft: 8, whiteSpace: 'nowrap' }}>{e.rate}</span>
@@ -232,7 +221,7 @@ export default function MonitorPage() {
           {/* Active sessions */}
           <div className="card" style={{ padding: '18px 20px' }}>
             <p style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', marginBottom: 14 }}>👥 活跃 Session</p>
-            {SESSIONS.map((s, i) => (
+            {sessions.map((s, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <p style={{ fontSize: 12, color: '#64748b' }}>{s.endpoint}</p>
                 <span style={{ fontSize: 14, fontWeight: 700, color: '#6366f1' }}>{s.count}{s.unit ? ` ${s.unit}` : ''}</span>
