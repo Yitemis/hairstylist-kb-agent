@@ -6,6 +6,7 @@ import { showToast } from '../../utils/toast'
 type OrderStatus = 'draft' | 'pending' | 'confirmed' | 'done' | 'cancelled'
 
 const STATUS_OPT: { value: OrderStatus; label: string; cls: string }[] = [
+  { value: 'draft',     label: '草稿',   cls: 'badge badge-draft' },
   { value: 'pending',   label: '待确认', cls: 'badge badge-pending' },
   { value: 'confirmed', label: '已确认', cls: 'badge badge-confirmed' },
   { value: 'done',      label: '已完成', cls: 'badge badge-done' },
@@ -107,7 +108,7 @@ export default function OrderManagePage() {
               </thead>
               <tbody>
                 {paged.map(order => {
-                  const s = STATUS_OPT.find(x => x.value === order.status)!
+                  const s = STATUS_OPT.find(x => x.value === order.status) || { value: 'pending', label: '未知', cls: 'badge badge-pending' }
                   return (
                     <tr key={order.id} className="animate-fade-up">
                       <td style={{ fontFamily: 'monospace', fontSize: 12, color: '#94a3b8' }}>{String(order.id).split('-').slice(-1)[0]}</td>

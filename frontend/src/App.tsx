@@ -22,6 +22,7 @@ import MonitorPage from './pages/admin/MonitorPage'
 
 // Customer extra pages
 import MemoryPage from './pages/customer/MemoryPage'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 /* ── Guards ─────────────────────────────────────────────── */
 function CustomerGuard({ children }: { children: React.ReactNode }) {
@@ -166,10 +167,10 @@ export default function App() {
         {/* Admin routes */}
         <Route path="/admin/login"      element={<AdminLoginPage />} />
         <Route path="/admin/knowledge"  element={<AdminGuard><KnowledgePage /></AdminGuard>} />
-        <Route path="/admin/orders"     element={<AdminGuard><OrderManagePage /></AdminGuard>} />
-        <Route path="/admin/branches"   element={<AdminGuard><BranchManagePage /></AdminGuard>} />
-        <Route path="/admin/stylists"   element={<AdminGuard><StylistManagePage /></AdminGuard>} />
-        <Route path="/admin/services"   element={<AdminGuard><ServiceManagePage /></AdminGuard>} />
+        <Route path="/admin/orders"     element={<AdminGuard><ErrorBoundary><OrderManagePage /></ErrorBoundary></AdminGuard>} />
+        <Route path="/admin/branches"   element={<AdminGuard><ErrorBoundary><BranchManagePage /></ErrorBoundary></AdminGuard>} />
+        <Route path="/admin/stylists"   element={<AdminGuard><ErrorBoundary><StylistManagePage /></ErrorBoundary></AdminGuard>} />
+        <Route path="/admin/services"   element={<AdminGuard><ErrorBoundary><ServiceManagePage /></ErrorBoundary></AdminGuard>} />
         <Route path="/admin/rag-eval"   element={<AdminGuard><RagEvalPage /></AdminGuard>} />
         <Route path="/admin/archive"    element={<AdminGuard><ArchivePage /></AdminGuard>} />
         <Route path="/admin/monitor"    element={<AdminGuard><MonitorPage /></AdminGuard>} />
