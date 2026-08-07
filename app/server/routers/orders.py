@@ -303,3 +303,56 @@ async def cancel_my_order(
     order.status = "cancelled"
     await session.commit()
     return {"status": "ok", "message": "已取消预约", "order_id": order_id}
+
+
+@router.post("/admin/orders/{order_id}/status", summary="店家更新订单状态")
+async def admin_update_order_status(
+    order_id: int,
+    body: dict,  # {"new_status": "confirmed", "note": "..."}
+    current: Annotated[CurrentUser, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """状态机: draft -> pending -> confirmed -> done / cancelled.
+
+    合法转换:
+      - draft -> pending (草稿已确认)
+      - draft -> cancelled (直接取消草稿)
+      - pending -> confirmed (店家确认)
+      - pending -> cancelled (店家拒绝)
+      - confirmed -> done (完成服务)
+      - confirmed -> cancelled (店家取消)
+    """
+    from app.db.models import Order as OrderModel
+
+    new_status = body.get("new_status", "").strip()
+    note = body.get("note", "").strip() or None
+
+    ALLOWED = {
+        "draft":     ["pending", "cancelled"],
+        "pending":   ["confirmed", "cancelled"],
+        "confirmed": ["done", "cancelled"],
+        "done":      [],
+        "cancelled": [],
+    }
+    VALID_STATUSES = {"draft", "pending", "confirmed", "done", "cancelled"}
+
+    if new_status not in VALID_STATUSES:
+        raise HTTPException(400, f"无效状态: {new_status}")
+
+    order = await session.get(OrderModel, order_id)
+    if order is None:
+        raise HTTPException(404, "订单不存在")
+
+    if new_status not in ALLOWED.get(order.status, []):
+        raise HTTPException(400, f"订单当前状态 {order.status} 不能转 {new_status}")
+
+    order.status = new_status
+    await session.commit()
+    await session.refresh(order)
+    return {
+        "status": "ok",
+        "order_id": order_id,
+        "old_status": order.status,
+        "new_status": new_status,
+        "note": note,
+    }

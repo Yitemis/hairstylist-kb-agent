@@ -164,11 +164,11 @@ export default function CustomerChatPage() {
   const nav = useNavigate()
   const user = getUser()
   const [messages, setMessages] = useState<Message[]>([])
-  const [hasGreeted, setHasGreeted] = useState(false)
+  const [hasGreeted, setHasGreeted] = useState(() => !!localStorage.getItem('chat_greeted_v1'))
   // 加载时 AI 主动发欢迎语 (调真实 /api/chat)
   useEffect(() => {
     if (hasGreeted) return
-    setHasGreeted(true)
+    setHasGreeted(true); localStorage.setItem('chat_greeted_v1', String(Date.now()))
     const greet = async () => {
       const u = getUser()
       const userId = (u as any)?.id || parseInt(localStorage.getItem('user_id') || '1')
