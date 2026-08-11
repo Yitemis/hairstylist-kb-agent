@@ -17,7 +17,20 @@
       "Bash(sleep 8)",
       "Bash(PYTHONIOENCODING=utf-8 python3 -c ' *)",
       "Bash(npx tsc *)",
-      "Read(//e//**)"
+      "Read(//e//**)",
+      "Bash(cd e:/hairstylist-kb-agent)",
+      "Bash(export AGENT_STATE_BACKEND=redis)",
+      "Bash(./.venv/Scripts/python.exe -c ' *)",
+      "Bash(export DATABASE_URL=\"postgresql+asyncpg://hair:hair123@localhost:5432/hairstylist\")",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_e2e_chat.py tests/test_booking_flow.py tests/test_jwt_security.py --no-header --co)",
+      "Bash(./.venv/Scripts/python.exe -m pip install pybreaker)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/ -q --no-header --ignore=tests/integration)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/ -q --no-header --ignore=tests/integration --ignore=tests/test_rag_pipeline.py)",
+      "Read(//c/Users/18414/Desktop/**)",
+      "Bash(./.venv/Scripts/python.exe -c \"import app.server.api; print\\('OK'\\)\")",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/ -q --no-header --ignore=tests/integration --ignore=tests/test_rag_pipeline.py -p no:cacheprovider)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_e2e_chat.py tests/test_booking_flow.py tests/test_jwt_security.py -q --no-header)",
+      "Bash(./.venv/Scripts/python.exe -m pytest tests/test_e2e_chat.py -v --no-header)"
     ],
     "additionalDirectories": [
       "\\tmp",
