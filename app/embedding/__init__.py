@@ -57,23 +57,21 @@ def build_embedding_model(capability: str = "text_embedding"):
 
 
 def build_rerank_model():
-    """构建 Rerank 模型（基于火山方舟 Rerank API）。
+    """构建 Rerank 模型（基于硅基流动 BAAI Rerank API，OpenAI 兼容）。
 
-    火山方舟提供 gte-rerank 等模型，OpenAI 兼容协议：
-        POST {base_url}/rerank
-        Body: {"model": "gte-rerank", "input": {"query": ..., "documents": [...]}}
+    端点: POST {base_url}/rerank
+    Body: {"model": "BAAI/bge-reranker-v2-m3", "query": ..., "documents": [...]}
+    Returns: {"results": [{"index": int, "relevance_score": float}, ...]}
     """
     global _rerank_model
     if _rerank_model is None:
-        from agentscope.model import DashScopeRerankModel
-        from ..core.config import rerank_config
+        from app.core.config import rerank_config
         if not rerank_config.is_valid:
             return None
-        from agentscope.credential import DashScopeCredential
-
-        credential = DashScopeCredential(api_key=rerank_config.api_key)
-        _rerank_model = DashScopeRerankModel(
-            credential=credential,
+        from app.embedding.siliconflow_rerank import SiliconFlowRerank
+        _rerank_model = SiliconFlowRerank(
+            api_key=rerank_config.api_key,
+            base_url=rerank_config.base_url,
             model=rerank_config.model,
         )
     return _rerank_model

@@ -79,12 +79,15 @@ class ToolRegistry:
         """检查工具是否存在。"""
         return name in self._tools
 
-    def build_toolkit(self) -> Toolkit:
-        """构造一个含全部工具的 Toolkit（供 Agent 使用）。"""
+    async def build_toolkit(self) -> Toolkit:
+        """构造含全部工具的 Toolkit (官方 async add_tool API)。
+
+        N7/N9 修复: 之前用 toolkit.tool_groups[0].tools.append 是私有属性 hack，
+        现在统一用 AgentScope 2.0 官方的 await toolkit.add_tool()。
+        """
         toolkit = Toolkit()
         for tool_obj in self._tools.values():
-            # AgentScope 2.0 用 add_tool 异步方法；这里直接添加到 tool_groups
-            toolkit.tool_groups[0].tools.append(tool_obj)
+            await toolkit.add_tool(tool_obj, group_name="basic")
         return toolkit
 
 
@@ -106,13 +109,19 @@ async def search_hair_knowledge(query: str) -> str:
     Returns:
         带溯源的知识库上下文，用于构建 Agent 回答。
     """
-    from rag.context import build_context
-    from rag.searcher import search
+    # P2-5 修复: 改用正确模块路径
+    from app.rag.v2_engine import retrieve
 
-    result = await search(query, tenant_id="default", top_k=3, enable_rerank=True)
+    result = await retrieve(
+        query=query, tenant_id="default", top_k=3, enable_rerank=True,
+    )
     if not result.hits:
         return "知识库中暂无相关内容。"
-    return build_context(result.hits)
+    # 构造 context 文本
+    parts = []
+    for h in result.hits:
+        parts.append(f"【来源: {h.filename or h.document_id} p{h.page}】\n{h.content[:500]}")
+    return "\n\n".join(parts)
 
 
 # 注册核心工具

@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
-"""知识问答专用 Agent。"""
+"""知识问答专用 Agent (P0-2: 接入 RAGMiddleware 统一双轨制)。
+
+N8 修复: build_knowledge_agent 改 async + 用 await registry.build_toolkit() 官方 API。
+"""
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from agentscope.agent import Agent
 from agentscope.tool import Toolkit
 
 from app.core.model_factory import get_model
+from app.core.rag_middleware import get_rag_middleware
+from app.core.tool_registry import registry
 
 logger = logging.getLogger(__name__)
 
@@ -35,45 +41,58 @@ _KNOWLEDGE_SYSTEM_PROMPT = """你是**美发专业知识顾问**，回答用户�
 """
 
 
-def build_knowledge_agent() -> Agent:
-    """构建知识问答专用 Agent。
+async def build_knowledge_agent() -> Agent:
+    """构建知识问答专用 Agent (P0-2 + N8 修复)。
 
-    Returns:
-        Agent: 配置好的 ReAct Agent，工具集只含 search_hair_knowledge。
+    工具装载: search_hair_knowledge (用 await toolkit.add_tool 官方 API)。
+    RAGMiddleware: 自动注入 RAG 上下文。
     """
-    from app.core.tool_registry import registry
+    selected_tools = [t for t in registry.get_tools() if t.name == "search_hair_knowledge"]
 
-    # 只装载 RAG 工具，避免 Agent 误调 booking 工具
     toolkit = Toolkit()
-    for tool in registry.get_tools():
-        if tool.name == "search_hair_knowledge":
-            toolkit.tool_groups[0].tools.append(tool)
-            break
+    for tool in selected_tools:
+        await toolkit.add_tool(tool, group_name="basic")
 
     model = get_model("chat")
+    rag_mw = get_rag_middleware()
+
     agent = Agent(
         name="美发知识顾问",
         system_prompt=_KNOWLEDGE_SYSTEM_PROMPT,
         model=model,
         toolkit=toolkit,
     )
-    logger.info("Knowledge Agent 已构建: 工具数=%d", len(toolkit.tool_groups[0].tools))
+    # 注入 RAGMiddleware
+    if hasattr(agent, "middlewares"):
+        agent.middlewares.append(rag_mw)
+    else:
+        if not hasattr(agent, "_middlewares"):
+            agent._middlewares = []
+        agent._middlewares.append(rag_mw)
+
+    logger.info(
+        "Knowledge Agent 已构建: 工具=%d, middleware=1",
+        len(selected_tools),
+    )
     return agent
 
 
-# 全局单例
-_knowledge_agent_instance: Agent | None = None
+# 全局单例 + 异步锁
+_knowledge_agent_instance = None
+_init_lock = asyncio.Lock()
 
 
-def get_knowledge_agent() -> Agent:
-    """获取全局知识 Agent 单例（懒加载）。"""
+async def get_knowledge_agent() -> Agent:
+    """获取知识 Agent 单例（异步懒加载 + 双检锁）。"""
     global _knowledge_agent_instance
     if _knowledge_agent_instance is None:
-        _knowledge_agent_instance = build_knowledge_agent()
+        async with _init_lock:
+            if _knowledge_agent_instance is None:
+                _knowledge_agent_instance = await build_knowledge_agent()
     return _knowledge_agent_instance
 
 
 def reload_knowledge_agent() -> None:
-    """热重载 Knowledge Agent（配置变更后调用）。"""
+    """热重载 Knowledge Agent。"""
     global _knowledge_agent_instance
     _knowledge_agent_instance = None

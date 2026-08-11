@@ -22,11 +22,9 @@ async def create_draft_order(user_id: int) -> str:
         user_id: 当前登录用户的 ID（从对话上下文获取）
     """
     async with async_session_maker() as session:
-        # 生成订单号
-        prefix = datetime.now().strftime("%y%m%d")
-        from random import randint
-        suffix = str(randint(100000, 999999))
-        order_no = f"{prefix}{suffix}"
+        # P2-1: 统一调用 utils.generate_order_no（与 orders.py 共一份实现）
+        from app.utils.order_utils import generate_order_no
+        order_no = generate_order_no()
 
         order = Order(
             order_no=order_no,
@@ -185,6 +183,28 @@ async def confirm_order(user_id: int, order_id: int) -> str:
         user_id: 当前登录用户的 ID
         order_id: 要确认的草稿订单ID
     """
+    # P1-9: PermissionEngine 接入（危险操作需 HITL 确认）
+    try:
+        from app.core.permission import engine, PermissionRequest, PermissionDecision
+        req = PermissionRequest(
+            user_id=user_id,
+            tool_name="confirm_order",
+            tool_args={"order_id": order_id},
+        )
+        result = await engine.evaluate(req)
+        if result.decision == PermissionDecision.DENIED:
+            return f"权限拒绝：{result.reason or '该操作被禁止'}"
+        if result.decision == PermissionDecision.ASKING:
+            # P1-9 修复: 闭环 ASKING - 创建 ask_id，前端可调 /api/permission/resolve
+            ask_id = engine.create_pending_ask(req, result)
+            return (
+                f"⚠️ [需要确认] {result.reason or '此操作需要您确认'}。\n"
+                f"ask_id={ask_id}\n"
+                f"请确认后再次提交订单。"
+            )
+    except ImportError:
+        pass  # 权限模块未就绪时降级
+
     async with async_session_maker() as session:
         # 权限校验：只能确认自己的订单
         stmt = select(Order).where(Order.id == order_id, Order.user_id == user_id)

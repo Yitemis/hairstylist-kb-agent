@@ -60,7 +60,7 @@ class ModelRouter:
                 capability=Capability.CHAT,
                 provider="ark",
                 api_key=chat_key,
-                base_url=os.environ.get("CHAT_BASE_URL", "https://ark.cn-beijing.volces.com/api/coding/v3"),
+                base_url=os.environ.get("CHAT_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
                 model=os.environ.get("CHAT_MODEL", "ark-code-latest"),
             )
         # MM_CHAT 复用 CHAT（同火山方舟）
