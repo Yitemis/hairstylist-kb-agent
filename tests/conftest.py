@@ -37,7 +37,11 @@ def init_db_session(event_loop):
         from app.db.session import init_db
         from app.db import models
         await init_db()
-    event_loop.run_until_complete(_init())
+    # 容忍 DB 不可用(允许只跑静态/源码扫描测试)
+    try:
+        event_loop.run_until_complete(_init())
+    except Exception as e:
+        print(f"[CONFTEST] init_db skipped: {e}")
     yield
 
 
@@ -49,7 +53,6 @@ def _milvus_cleanup(request):
         print("[CONFTEST] keep_milvus detected, skip drop")
         yield
         return
-    print("[CONFTEST] dropping Milvus collections")
     try:
         from pymilvus import MilvusClient
         client = MilvusClient(uri="http://localhost:19530")
