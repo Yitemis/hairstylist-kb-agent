@@ -57,11 +57,13 @@ async def get_milvus_store():
         return _milvus_store
     from app.rag.milvus_store import MilvusStore, AUDIENCE_KEY
     from app.core.config import vector_store_config
+    # P2-2 统一 dim 来源：env > text embedding dim > 1024
+    _dim = int(os.environ.get("VECTOR_DIMS") or os.environ.get("TEXT_EMBEDDING_DIMENSIONS") or "1024")
     _milvus_store = MilvusStore(
         host=vector_store_config.host or "localhost",
         port=int(os.environ.get("MILVUS_PORT", "19530")),
         collection=vector_store_config.collection or "hairstylist_kb",
-        dim=vector_store_config.dims or 1024,
+        dim=_dim,
     )
     _milvus_store.ensure_collection()
     return _milvus_store
@@ -273,6 +275,7 @@ async def retrieve(
                 cq_vec, tenant_id=tenant_id, top_k=fetch_k,
                 category_filter=category_filter,
                 audience_filter=audience_filter,
+            include_unpublished=include_unpublished,
             )
             all_vector_hits.extend(vh)
         except Exception as e:

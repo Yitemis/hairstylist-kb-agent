@@ -24,6 +24,7 @@ DOCUMENT_ID_KEY = "document_id"
 FILENAME_KEY = "filename"
 CATEGORY_KEY = "category"
 AUDIENCE_KEY = "audience"
+IS_PUBLISHED_KEY = "is_published"
 
 
 class MilvusStore:
@@ -88,6 +89,7 @@ class MilvusStore:
                 FILENAME_KEY: str(p.get(FILENAME_KEY, "")),
                 CATEGORY_KEY: str(p.get(CATEGORY_KEY, "general")),
                 AUDIENCE_KEY: str(p.get(AUDIENCE_KEY, "all")),
+                IS_PUBLISHED_KEY: bool(p.get(IS_PUBLISHED_KEY, False)),
             })
             data.append(row)
         result = client.insert(collection_name=self.collection, data=data)
@@ -103,19 +105,32 @@ class MilvusStore:
         category_filter: Optional[List[str]] = None,
         document_id_filter: Optional[str] = None,
         audience_filter: Optional[List[str]] = None,
+        include_unpublished: bool = False,
     ) -> List[dict]:
-        """向量检索（多租户隔离）。返回 [{id, score, payload}, ...]"""
+        """向量检索（多租户隔离）。返回 [{id, score, payload}, ...]
+
+        Filter 表达式：
+        - Milvus 用双引号包裹字符串字面量
+        - list 字段用 `in ["a", "b"]`
+        - boolean 字段用 `== true` / `== false`
+        """
         client = self._get_client()
+        # 安全转义：双引号 → 反斜杠转义
+        def _esc(s: str) -> str:
+            return s.replace("\\", "\\\\").replace('"', '\\"')
+
         # 构造过滤表达式
-        filter_parts = [f'{TENANT_ID_KEY} == "{tenant_id}"']
+        filter_parts = [f'{TENANT_ID_KEY} == "{_esc(tenant_id)}"']
         if category_filter:
-            cats = '", "'.join(category_filter)
+            cats = '", "'.join(_esc(c) for c in category_filter)
             filter_parts.append(f'{CATEGORY_KEY} in ["{cats}"]')
         if audience_filter:
-            auds = '", "'.join(audience_filter)
+            auds = '", "'.join(_esc(a) for a in audience_filter)
             filter_parts.append(f'{AUDIENCE_KEY} in ["{auds}"]')
+        if not include_unpublished:
+            filter_parts.append(f'{IS_PUBLISHED_KEY} == true')
         if document_id_filter:
-            filter_parts.append(f'{DOCUMENT_ID_KEY} == "{document_id_filter}"')
+            filter_parts.append(f'{DOCUMENT_ID_KEY} == "{_esc(document_id_filter)}"')
         filter_expr = " and ".join(filter_parts)
         results = client.search(
             collection_name=self.collection,
