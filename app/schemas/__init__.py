@@ -27,17 +27,15 @@ class ChatSessionCreate(BaseModel):
     """创建会话请求。"""
     session_id: str
     title: str | None = None
-    state_json: str | None = None
     pending_order_id: int | None = None
 
 
 class ChatSessionPublic(BaseModel):
-    """会话对外信息。"""
+    """会话对外信息 (P0-5: state_json 已删除, 状态统一存 AgentStateStore)。"""
     id: int
     session_id: str
     user_id: int
     title: str | None = None
-    state_json: str | None = None
     pending_order_id: int | None = None
     interrupted: bool = False
     last_iter: int = 0

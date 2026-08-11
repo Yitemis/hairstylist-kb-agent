@@ -162,19 +162,18 @@ class ChatMessage(Base, TimestampMixin):
 
 
 class ChatSession(Base, TimestampMixin):
-    """对话会话（用于状态持久化 + 跨服务器恢复）。
+    """对话会话元数据（状态由 AgentStateStore / Redis 统一管理, P0-5）。
 
-    借鉴 AgentScope 2.0 的 AgentState 设计：
-    - session_id: 会话唯一 ID（用户可自定义 / 自动生成）
+    P0-5 修复: 删除 state_json 字段, 状态统一存 AgentStateStore (Redis),
+    避免双数据源不一致。前端 list_sessions 只读 state_store。
+
+    保留字段:
+    - session_id: 会话唯一 ID
     - user_id: 用户 ID
-    - state_json: 完整状态快照（dict 序列化）
-    - 状态字段：
-        - context: 消息列表（也可在 chat_messages 表查）
-        - pending_orders: 进行中的订单 ID 列表（草稿）
-        - plan_mode: 是否在 Plan 模式
-        - interrupted: 是否被打断
-        - last_iter: 最后一次迭代次数
-        - extra: 其他业务自定义字段
+    - title: 对话标题（首条消息摘要）
+    - pending_order_id: 进行中的订单 ID（草稿）
+    - interrupted: 是否被打断
+    - last_iter: 最后一次迭代次数
     """
 
     __tablename__ = "chat_sessions"
@@ -183,7 +182,6 @@ class ChatSession(Base, TimestampMixin):
     session_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
     title: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 对话标题（首条消息摘要）
-    state_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # 完整状态 JSON
     pending_order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
     interrupted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_iter: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -303,7 +301,6 @@ class ImageChunk(Base, TimestampMixin):
 
 
 class Document(Base, TimestampMixin):
-    pass  # placeholder
     """知识库文档元信息。
 
     字段对应 MinerU 解析后的元数据 + 业务元信息。
@@ -336,6 +333,9 @@ class Document(Base, TimestampMixin):
     )
     # 受众隔离：user=C 端用户, staff=商家员工, all=所有人
     audience: Mapped[str] = mapped_column(String(20), default="all", nullable=False, index=True)
+    # 发布状态：True=已发布，RAG 检索可命中
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 
