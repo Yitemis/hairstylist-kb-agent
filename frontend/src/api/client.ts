@@ -1,5 +1,4 @@
-/**HTTP 客户端基础。*/
-import { getToken } from '../utils/auth'
+/**HTTP 客户端基础 (P1-4: 用 HttpOnly Cookie 鉴权，自动带 credentials: 'include')。*/
 
 export class ApiError extends Error {
   status: number
@@ -20,14 +19,17 @@ export async function request<T = any>(
   url: string,
   options: RequestInit = {}
 ): Promise<{ code: number; data: T; message: string }> {
-  const token = getToken()
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> || {}),
   }
-  if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const response = await fetch(url, { ...options, headers })
+  // P1-4: credentials: 'include' 让浏览器自动带 HttpOnly Cookie
+  const response = await fetch(url, {
+    ...options,
+    headers,
+    credentials: 'include',
+  })
   const text = await response.text()
   let data: any = null
   try { data = text ? JSON.parse(text) : null } catch { /* not JSON */ }

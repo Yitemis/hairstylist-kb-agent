@@ -135,21 +135,21 @@ export default function StylistManagePage() {
                 {stylists.map(s => (
                   <tr key={s.id} className="animate-fade-up">
                     <td style={{ color: '#94a3b8', fontSize: 13 }}>#{s.id}</td>
-                    <td><Avatar name={s.name} url={s.avatarUrl} /></td>
+                    <td><Avatar name={s.name} url={s.avatar} /></td>
                     <td>
                       <p style={{ fontWeight: 500 }}>{s.name}</p>
-                      <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>{s.bio.slice(0, 22)}…</p>
+                      <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 1 }}>{(s.description || "").slice(0, 22)}…</p>
                     </td>
-                    <td>{s.branch}</td>
+                    <td>{branches.find(b => b.id === s.branch_id)?.name || "-"}</td>
                     <td>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {s.skills.split(',').map(sk => (
+                        {(s.specialties || []).join(',').split(',').map(sk => (
                           <span key={sk} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#f5f3ff', color: '#6366f1', border: '1px solid #e0d9ff' }}>{sk}</span>
                         ))}
                       </div>
                     </td>
                     <td>
-                      <span style={{ fontSize: 13, padding: '3px 10px', borderRadius: 999, background: '#eff6ff', color: '#3b82f6' }}>{s.maxHoursPerDay}h/天</span>
+                      <span style={{ fontSize: 13, padding: '3px 10px', borderRadius: 999, background: '#eff6ff', color: '#3b82f6' }}>{s.max_daily_hours}h/天</span>
                     </td>
                     <td><span className={s.active ? 'badge badge-active' : 'badge badge-inactive'}>{s.active ? '● 在职' : '● 已下线'}</span></td>
                     <td>

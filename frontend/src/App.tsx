@@ -1,46 +1,48 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { getToken, getRole } from './utils/auth'
+import { lazy, Suspense } from 'react'
+import { getToken, getRole, getUser } from './utils/auth'
 import Toast from './components/Toast'
 
-// Customer pages
-import CustomerLoginPage from './pages/customer/LoginPage'
-import CustomerRegisterPage from './pages/customer/RegisterPage'
-import CustomerChatPage from './pages/customer/ChatPage'
-import CustomerOrderListPage from './pages/customer/OrderListPage'
-import CustomerOrderDetailPage from './pages/customer/OrderDetailPage'
+// P2-6: 路由懒加载（首屏只加载必要页面，admin 页面按需加载）
+const CustomerLoginPage = lazy(() => import('./pages/customer/LoginPage'))
+const CustomerRegisterPage = lazy(() => import('./pages/customer/RegisterPage'))
+const CustomerChatPage = lazy(() => import('./pages/customer/ChatPage'))
+const CustomerOrderListPage = lazy(() => import('./pages/customer/OrderListPage'))
+const CustomerOrderDetailPage = lazy(() => import('./pages/customer/OrderDetailPage'))
 
 // Admin pages
-import AdminLoginPage from './pages/admin/AdminLoginPage'
-import KnowledgePage from './pages/admin/KnowledgePage'
-import OrderManagePage from './pages/admin/OrderManagePage'
-import BranchManagePage from './pages/admin/BranchManagePage'
-import StylistManagePage from './pages/admin/StylistManagePage'
-import ServiceManagePage from './pages/admin/ServiceManagePage'
-import RagEvalPage from './pages/admin/RagEvalPage'
-import ArchivePage from './pages/admin/ArchivePage'
-import MonitorPage from './pages/admin/MonitorPage'
+const AdminLoginPage = lazy(() => import('./pages/admin/AdminLoginPage'))
+const KnowledgePage = lazy(() => import('./pages/admin/KnowledgePage'))
+const OrderManagePage = lazy(() => import('./pages/admin/OrderManagePage'))
+const BranchManagePage = lazy(() => import('./pages/admin/BranchManagePage'))
+const StylistManagePage = lazy(() => import('./pages/admin/StylistManagePage'))
+const ServiceManagePage = lazy(() => import('./pages/admin/ServiceManagePage'))
+const RagEvalPage = lazy(() => import('./pages/admin/RagEvalPage'))
+const ArchivePage = lazy(() => import('./pages/admin/ArchivePage'))
+const MonitorPage = lazy(() => import('./pages/admin/MonitorPage'))
 
 // Customer extra pages
-import MemoryPage from './pages/customer/MemoryPage'
+const MemoryPage = lazy(() => import('./pages/customer/MemoryPage'))
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 /* ── Guards ─────────────────────────────────────────────── */
+// N5 修复: getToken() 现在永远返回 null (HttpOnly Cookie 模式)，
+// 改用 getUser() 判断 user 信息是否存在。
 function CustomerGuard({ children }: { children: React.ReactNode }) {
-  if (!getToken()) return <Navigate to="/customer/login" replace />
+  if (!getUser()) return <Navigate to="/customer/login" replace />
   return <>{children}</>
 }
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
-  if (!getToken()) return <Navigate to="/admin/login" replace />
-  if (getRole() !== 'admin') return <Navigate to="/admin/login" replace />
+  if (!getUser() || getRole() !== 'admin') return <Navigate to="/admin/login" replace />
   return <>{children}</>
 }
 
 /* ── Root redirect ──────────────────────────────────────── */
 function RootRedirect() {
-  const token = getToken()
+  const user = getUser()
   const role = getRole()
-  if (!token) return <Navigate to="/customer/login" replace />
+  if (!user) return <Navigate to="/customer/login" replace />
   if (role === 'admin') return <Navigate to="/admin/knowledge" replace />
   return <Navigate to="/customer/chat" replace />
 }
@@ -157,23 +159,23 @@ export default function App() {
         <Route path="/" element={<DemoLanding />} />
 
         {/* Customer routes */}
-        <Route path="/customer/login"      element={<CustomerLoginPage />} />
-        <Route path="/customer/register"   element={<CustomerRegisterPage />} />
-        <Route path="/customer/chat"       element={<CustomerGuard><CustomerChatPage /></CustomerGuard>} />
-        <Route path="/customer/orders"     element={<CustomerGuard><CustomerOrderListPage /></CustomerGuard>} />
+        <Route path="/customer/login"      element={<Suspense fallback={null}><CustomerLoginPage /></Suspense>} />
+        <Route path="/customer/register"   element={<Suspense fallback={null}><CustomerRegisterPage /></Suspense>} />
+        <Route path="/customer/chat"       element={<CustomerGuard><Suspense fallback={null}><CustomerChatPage /></Suspense></CustomerGuard>} />
+        <Route path="/customer/orders"     element={<CustomerGuard><Suspense fallback={null}><CustomerOrderListPage /></Suspense></CustomerGuard>} />
         <Route path="/customer/orders/:id" element={<CustomerGuard><CustomerOrderDetailPage /></CustomerGuard>} />
         <Route path="/customer/memory"     element={<CustomerGuard><MemoryPage /></CustomerGuard>} />
 
         {/* Admin routes */}
-        <Route path="/admin/login"      element={<AdminLoginPage />} />
-        <Route path="/admin/knowledge"  element={<AdminGuard><KnowledgePage /></AdminGuard>} />
-        <Route path="/admin/orders"     element={<AdminGuard><ErrorBoundary><OrderManagePage /></ErrorBoundary></AdminGuard>} />
-        <Route path="/admin/branches"   element={<AdminGuard><ErrorBoundary><BranchManagePage /></ErrorBoundary></AdminGuard>} />
-        <Route path="/admin/stylists"   element={<AdminGuard><ErrorBoundary><StylistManagePage /></ErrorBoundary></AdminGuard>} />
-        <Route path="/admin/services"   element={<AdminGuard><ErrorBoundary><ServiceManagePage /></ErrorBoundary></AdminGuard>} />
-        <Route path="/admin/rag-eval"   element={<AdminGuard><RagEvalPage /></AdminGuard>} />
-        <Route path="/admin/archive"    element={<AdminGuard><ArchivePage /></AdminGuard>} />
-        <Route path="/admin/monitor"    element={<AdminGuard><MonitorPage /></AdminGuard>} />
+        <Route path="/admin/login"      element={<Suspense fallback={null}><AdminLoginPage /></Suspense>} />
+        <Route path="/admin/knowledge"  element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><KnowledgePage /></Suspense></ErrorBoundary></AdminGuard>} />
+        <Route path="/admin/orders"     element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><OrderManagePage /></Suspense></ErrorBoundary></AdminGuard>} />
+        <Route path="/admin/branches"   element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><BranchManagePage /></Suspense></ErrorBoundary></AdminGuard>} />
+        <Route path="/admin/stylists"   element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><StylistManagePage /></Suspense></ErrorBoundary></AdminGuard>} />
+        <Route path="/admin/services"   element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><ServiceManagePage /></Suspense></ErrorBoundary></AdminGuard>} />
+        <Route path="/admin/rag-eval"   element={<AdminGuard><Suspense fallback={null}><RagEvalPage /></Suspense></AdminGuard>} />
+        <Route path="/admin/archive"    element={<AdminGuard><Suspense fallback={null}><ArchivePage /></Suspense></AdminGuard>} />
+        <Route path="/admin/monitor"    element={<AdminGuard><Suspense fallback={null}><MonitorPage /></Suspense></AdminGuard>} />
 
         {/* Fallback */}
         <Route path="*" element={<RootRedirect />} />

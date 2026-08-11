@@ -171,3 +171,43 @@ export async function getRagStats(tenantId?: string) {
   const r = await request<any>(url)
   return r.data
 }
+
+// 店家手工下单 (电话预约)
+export async function adminCreateOrder(body: any) {
+  return request('/api/admin/orders', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+// 删除订单 (B 端)
+export async function adminDeleteOrder(orderId: number) {
+  return request(`/api/admin/orders/${orderId}`, { method: 'DELETE' })
+}
+
+// 文档管理 (B 端)
+export interface AdminDocument {
+  document_id: string
+  filename: string
+  file_type: string
+  file_size: number
+  page_count: number
+  mineru_status: string  // pending / parsing / parsed / indexed / failed
+  is_published: boolean
+  published_at: string | null
+  tenant_id: string
+  category: string
+  created_at: string
+}
+
+export async function listDocuments(tenantId?: string) {
+  const url = tenantId ? `/api/rag/documents?tenant_id=${tenantId}` : '/api/rag/documents'
+  const r = await request<AdminDocument[]>(url)
+  return r.data || []
+}
+
+export async function publishDocument(documentId: string, isPublished: boolean = true) {
+  return request(`/api/rag/publish/${documentId}`, {
+    method: 'POST', body: JSON.stringify({ is_published: isPublished }),
+  })
+}
