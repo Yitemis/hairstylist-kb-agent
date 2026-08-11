@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
-"""FastAPI 认证依赖：从 Bearer Token 解析当前登录主体。
+"""FastAPI 认证依赖：从 Bearer Token 或 HttpOnly Cookie 解析当前登录主体。
 
-- get_current_user  → 任意已登录主体（含 user / staff）
-- require_staff      → 仅店家/员工可访问（订单后台、知识库管理）
-- require_user       → 仅 C 端用户可访问（下单）
+P1-4: 同时支持 Authorization header + access_token cookie（XSS-safe）。
 """
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.security import decode_token
@@ -35,16 +33,23 @@ class CurrentUser:
 
 
 async def get_current_user(
+    request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> CurrentUser:
-    """解析 Authorization: Bearer <token>，返回当前主体。"""
-    if credentials is None:
+    """解析 token：优先 Authorization header，fallback 到 access_token cookie (P1-4)。"""
+    token: Optional[str] = None
+    if credentials is not None:
+        token = credentials.credentials
+    if not token:
+        token = request.cookies.get("access_token")
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="未提供认证令牌",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    payload = decode_token(credentials.credentials)
+    payload = decode_token(token)
     if payload is None or "sub" not in payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

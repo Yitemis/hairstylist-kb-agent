@@ -31,6 +31,24 @@ def set_session_id(session_id: str) -> None:
     session_id_var.set(session_id)
 
 
+def get_trace_id() -> str:
+    """获取当前 trace_id（任意上下文都安全）。"""
+    try:
+        return trace_id_var.get()
+    except LookupError:
+        return "-"
+
+
+def copy_context() -> "contextvars.Context":
+    """P2-3: 复制当前 contextvars（用于 asyncio.create_task 传递）。
+
+    用法:
+        asyncio.create_task(copy_context().run_async(my_coro()))
+    """
+    import contextvars
+    return contextvars.copy_context()
+
+
 class JSONFormatter(logging.Formatter):
     """JSON 格式化器：每条日志一行 JSON。"""
 

@@ -86,7 +86,8 @@ class VectorStoreConfig:
     path: str = "./data/qdrant"  # qdrant-local 数据目录
     collection: str = "hairstylist_kb"
     metric_type: str = "COSINE"
-    dims: int = 2048
+    # N4 修复: 默认 1024 (硅基流动 BAAI/bge-large-zh-v1.5 的真实维度)
+    dims: int = 1024
 
     @property
     def is_valid(self) -> bool:
@@ -218,9 +219,21 @@ def _build_model_config(prefix: str) -> ModelConfig:
     )
 
 
-chat_config = _build_model_config("CHAT")
-embedding_config = _build_model_config("EMBEDDING")
-rerank_config = _build_model_config("RERANK")
+# P3-5 合并: 用 model_configs 字典作为单一来源
+# 旧代码用 chat_config / embedding_config / rerank_config（保留向后兼容）
+def _build_all_model_configs() -> dict:
+    """构建所有模型配置（单一数据源）。"""
+    return {
+        "chat": _build_model_config("CHAT"),
+        "embedding": _build_model_config("EMBEDDING"),
+        "rerank": _build_model_config("RERANK"),
+    }
+
+
+model_configs: dict = _build_all_model_configs()
+chat_config = model_configs["chat"]
+embedding_config = model_configs["embedding"]
+rerank_config = model_configs["rerank"]
 
 vector_store_config = VectorStoreConfig(
     engine=_get_env("VECTOR_STORE_ENGINE", "milvus"),
@@ -231,7 +244,7 @@ vector_store_config = VectorStoreConfig(
     path=_get_env("VECTOR_STORE_PATH", "./data/qdrant"),
     collection=_get_env("VECTOR_COLLECTION", "hairstylist_kb"),
     metric_type=_get_env("VECTOR_METRIC_TYPE", "COSINE"),
-    dims=int(_get_env("VECTOR_DIMS", "2048")),
+    dims=int(_get_env("VECTOR_DIMS", "1024")),
 )
 
 server_config = ServerConfig(
@@ -299,20 +312,21 @@ auth_config = AuthConfig(
 
 # 兼容旧代码
 is_chat_ready = chat_config.is_valid
-
-# 配置字典（供模型工厂使用）
-model_configs = {
-    "chat": chat_config,
-    "embedding": embedding_config,
-    "rerank": rerank_config,
-}
+# P3-5: model_configs 已在上面定义（单一数据源），这里删除重复定义
 
 
 @dataclass
 class AgentStateConfig:
-    """Agent 状态持久化配置。"""
+    """Agent 状态持久化配置。
 
-    backend: str = "json_file"  # "json_file" | "memory"
+    P0-5 真实接入 Redis:
+    - 默认 redis: 多副本安全（生产 + 单进程开发都可用）
+    - memory: 测试无副作用
+    - json_file: 单进程降级
+    """
+
+    # P0-5: 默认改 redis（从 json_file 升级）
+    backend: str = "redis"  # "redis" | "json_file" | "memory"
     root_path: str = "./data/agent_state"
 
 

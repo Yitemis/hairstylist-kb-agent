@@ -43,7 +43,7 @@ class MiddlewareBase(ABC):
     name: str = "BaseMiddleware"
 
     @abstractmethod
-    async def on_agent(
+    async def on_reply(
         self,
         ctx: MiddlewareContext,
         next_fn: Callable,
@@ -73,7 +73,7 @@ class LoggingMiddleware(MiddlewareBase):
 
     name = "Logging"
 
-    async def on_agent(self, ctx: MiddlewareContext, next_fn: Callable) -> Any:
+    async def on_reply(self, ctx: MiddlewareContext, next_fn: Callable) -> Any:
         logger.info(
             "[trace=%s] start chat: user=%s session=%s",
             ctx.trace_id, ctx.user_id, ctx.session_id,
@@ -110,7 +110,7 @@ class RateLimitMiddleware(MiddlewareBase):
         # user_id -> [timestamps]
         self._buckets: dict[int, list[float]] = {}
 
-    async def on_agent(self, ctx: MiddlewareContext, next_fn: Callable) -> Any:
+    async def on_reply(self, ctx: MiddlewareContext, next_fn: Callable) -> Any:
         if ctx.user_id is None:
             return await next_fn()
         now = time.time()
@@ -162,7 +162,7 @@ async def run_with_middlewares(
     # 从后往前构建洋葱
     for mw in reversed(_middlewares):
         prev_chain = chain
-        chain = lambda c=prev_chain, m=mw: m.on_agent(ctx, c)
+        chain = lambda c=prev_chain, m=mw: m.on_reply(ctx, c)
     return await chain()
 
 

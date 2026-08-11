@@ -155,12 +155,86 @@ _state_store: AgentStateStore | None = None
 
 
 def get_state_store() -> AgentStateStore:
-    """获取全局状态存储单例。"""
+    """获取全局状态存储单例。
+
+    后端选择：
+    - memory: InMemoryAgentStateStore（测试用）
+    - redis: RedisAgentStateStore（生产用，多副本安全，P0-5 真实接入）
+    - file: JsonFileAgentStateStore（开发用，单副本）
+    """
     global _state_store
     if _state_store is None:
         from app.core.config import agent_state_config
-        if agent_state_config.backend == "memory":
+        backend = agent_state_config.backend
+        if backend == "memory":
             _state_store = InMemoryAgentStateStore()
+        elif backend == "redis":
+            _state_store = RedisAgentStateStore.from_env()
         else:
             _state_store = JsonFileAgentStateStore(agent_state_config.root_path)
     return _state_store
+
+
+class RedisAgentStateStore(AgentStateStore):
+    """P0-5: Redis 实现（生产级，多 worker 安全，跨进程共享）。
+
+    Key 设计:
+        {prefix}:{user_id}:{session_id}:{key} → JSON
+        {prefix}:sessions:{user_id} → set[session_id]
+    """
+
+    PREFIX = "agent_state"
+
+    def __init__(self, redis_client) -> None:
+        self.r = redis_client
+
+    @classmethod
+    def from_env(cls) -> "RedisAgentStateStore":
+        """从 REDIS_URL 构造（带降级：连不上走 file）。"""
+        import os
+        import redis
+        url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+        try:
+            client = redis.from_url(url, decode_responses=True, socket_timeout=2)
+            client.ping()
+            logger.info("RedisAgentStateStore 连接成功: %s", url)
+            return cls(client)
+        except Exception as e:
+            # N1 修复: 降级到 JsonFile（开发可用，单进程），不再用 InMemory（生产丢数据）
+            logger.warning("Redis 连不上 (%s)，降级到 JsonFile", e)
+            from app.core.config import agent_state_config
+            return JsonFileAgentStateStore(agent_state_config.root_path)
+
+    def _k(self, user_id: str, session_id: str, key: str) -> str:
+        return f"{self.PREFIX}:{user_id}:{session_id}:{key}"
+
+    def _sk(self, user_id: str) -> str:
+        return f"{self.PREFIX}:sessions:{user_id}"
+
+    def save(self, user_id, session_id, key, value) -> None:
+        if hasattr(value, "model_dump"):
+            data = value.model_dump()
+        elif isinstance(value, dict):
+            data = value
+        else:
+            data = value.__dict__ if hasattr(value, "__dict__") else value
+        import json
+        self.r.set(self._k(user_id, session_id, key), json.dumps(data, ensure_ascii=False))
+        self.r.sadd(self._sk(user_id), session_id)
+
+    def get(self, user_id, session_id, key):
+        import json
+        raw = self.r.get(self._k(user_id, session_id, key))
+        return json.loads(raw) if raw else None
+
+    def exists(self, user_id, session_id) -> bool:
+        return self.r.sismember(self._sk(user_id), session_id)
+
+    def delete(self, user_id, session_id) -> None:
+        # 删所有属于该 session 的 key（用 SCAN 避免 KEYS 阻塞）
+        for k in self.r.scan_iter(f"{self.PREFIX}:{user_id}:{session_id}:*"):
+            self.r.delete(k)
+        self.r.srem(self._sk(user_id), session_id)
+
+    def list_session_ids(self, user_id) -> list[str]:
+        return sorted(self.r.smembers(self._sk(user_id)) or set())
