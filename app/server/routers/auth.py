@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+import os
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -57,15 +59,41 @@ async def register(
     token = create_access_token(
         subject=account.id, role=account.role, extra={"name": account.name}
     )
-    return TokenResponse(access_token=token, user=UserPublic.model_validate(account))
+    # P1-4: HttpOnly Cookie（防 XSS 偷 token）
+    is_prod = os.environ.get("HAIRSTYLIST_ENV", "dev") == "prod"
+    response = JSONResponse(content={
+        "access_token": token,
+        "user": UserPublic.model_validate(account).model_dump(),
+    })
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=is_prod,
+        samesite="strict",
+        max_age=60 * 60 * 24 * 7,
+        path="/",
+    )
+    return response
 
 
 @router.post("/login", response_model=TokenResponse, summary="登录")
 async def login(
     body: LoginRequest,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> TokenResponse:
-    """手机号 + 密码登录。role 决定查 users 还是 staffs 表。"""
+    """手机号 + 密码登录。role 决定查 users 还是 staffs 表。
+
+    P1-3: 限流 5 次/分钟/IP（防暴力破解）
+    """
+    # P1-3: 暴力破解防护（slowapi 全局限流器）
+    from app.server.api import limiter
+    try:
+        limiter.check(request, "5/minute")
+    except Exception:
+        raise HTTPException(status_code=429, detail="登录尝试过于频繁，请稍后再试")
+
     model = _model_for_role(body.role)
 
     account = await session.scalar(select(model).where(model.phone == body.phone))
@@ -77,7 +105,22 @@ async def login(
     token = create_access_token(
         subject=account.id, role=account.role, extra={"name": account.name}
     )
-    return TokenResponse(access_token=token, user=UserPublic.model_validate(account))
+    # P1-4: HttpOnly Cookie（防 XSS 偷 token）
+    is_prod = os.environ.get("HAIRSTYLIST_ENV", "dev") == "prod"
+    response = JSONResponse(content={
+        "access_token": token,
+        "user": UserPublic.model_validate(account).model_dump(),
+    })
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=is_prod,
+        samesite="strict",
+        max_age=60 * 60 * 24 * 7,
+        path="/",
+    )
+    return response
 
 
 
@@ -116,8 +159,10 @@ async def staff_login(
 async def logout(
     _current: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> dict:
-    """登出。JWT 无状态，前端删除 token 即可；此处仅作语义接口。"""
-    return {"status": "ok", "message": "已登出"}
+    """登出。P1-4: 同时清 HttpOnly Cookie。"""
+    response = JSONResponse(content={"status": "ok", "message": "已登出"})
+    response.delete_cookie("access_token", path="/")
+    return response
 
 
 @router.get("/me", response_model=UserPublic, summary="当前用户")

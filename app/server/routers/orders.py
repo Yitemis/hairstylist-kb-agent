@@ -26,10 +26,9 @@ router = APIRouter(prefix="/api", tags=["订单管理"])
 
 
 def _generate_order_no() -> str:
-    """生成订单号：YYMMDD + 6位随机。"""
-    prefix = datetime.now().strftime("%y%m%d")
-    suffix = str(random.randint(100000, 999999))
-    return f"{prefix}{suffix}"
+    """P2-1: 改为统一调用 app.utils.order_utils.generate_order_no（去重）。"""
+    from app.utils.order_utils import generate_order_no
+    return generate_order_no()
 
 
 @router.get("/orders", summary="获取当前用户订单列表", response_model=list[OrderListItem])
@@ -357,6 +356,69 @@ async def cancel_my_order(
     return {"status": "ok", "message": "已取消预约", "order_id": order_id}
 
 
+@router.post("/admin/orders", response_model=OrderPublic, summary="店家手工下单 (电话预约)")
+async def admin_create_order(
+    body: OrderCreate,
+    current: Annotated[CurrentUser, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> OrderPublic:
+    """B 端店家手工下单：电话预约场景。status 直接 confirmed (已确认)."""
+    if body.stylist_id is not None:
+        stylist = await session.get(Stylist, body.stylist_id)
+        if stylist is None or not stylist.is_active:
+            raise HTTPException(400, "所选发型师不存在或已下线")
+        if body.branch_id is not None and stylist.branch_id != body.branch_id:
+            raise HTTPException(400, "发型师不属于该分店")
+    branch = None
+    if body.branch_id is not None:
+        branch = await session.get(Branch, body.branch_id)
+        if branch is None or not branch.is_active:
+            raise HTTPException(400, "所选分店不存在或已下架")
+    duration = body.duration_minutes
+    price = body.total_price
+    if body.service_id is not None:
+        service = await session.get(Service, body.service_id)
+        if service is None or not service.is_active:
+            raise HTTPException(400, "所选服务不存在或已下架")
+        if duration is None:
+            duration = service.duration_minutes
+        if price is None and service.price is not None:
+            price = float(service.price)
+    end_time = None
+    if body.appointment_time and duration:
+        from datetime import datetime as _dt, time as _t
+        from datetime import timedelta
+        hh, mm = body.appointment_time.split(":")
+        end_time = _dt.combine(body.appointment_date, _t(int(hh), int(mm)))
+        end_time = end_time + timedelta(minutes=duration)
+    import secrets
+    order_no = f"{body.appointment_date.strftime('%y%m%d')}{secrets.token_hex(4).upper()}"
+    order = Order(
+        order_no=order_no,
+        user_id=current.id,
+        branch_id=body.branch_id,
+        customer_name=body.customer_name,
+        customer_phone=body.customer_phone,
+        stylist_id=body.stylist_id,
+        service_id=body.service_id,
+        service_type=body.service_type or "电话预约",
+        appointment_date=body.appointment_date,
+        appointment_time=body.appointment_time,
+        end_time=end_time,
+        duration_minutes=duration,
+        total_price=price,
+        address=body.address,
+        note=body.note or "电话预约 (B端店家手工)",
+        status="confirmed",
+    )
+    session.add(order)
+    await session.commit()
+    await session.refresh(order)
+    return OrderPublic.model_validate(order)
+
+
+
+
 @router.post("/admin/orders/{order_id}/status", summary="店家更新订单状态")
 async def admin_update_order_status(
     order_id: int,
@@ -410,3 +472,18 @@ async def admin_update_order_status(
     }
 
 
+
+
+@router.delete("/admin/orders/{order_id}", summary="店家删除订单")
+async def admin_delete_order(
+    order_id: int,
+    current: Annotated[CurrentUser, Depends(require_user)],
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> dict:
+    """B 端店家删除订单 (硬删除)。释放空间 + 避免重复入库。"""
+    order = await session.get(Order, order_id)
+    if order is None:
+        raise HTTPException(404, "订单不存在")
+    await session.delete(order)
+    await session.commit()
+    return {"status": "ok", "deleted": order_id}
