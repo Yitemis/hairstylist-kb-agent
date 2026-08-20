@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
-"""订单工具集：list_branches/list_stylists/create_draft_order 等。"""
+"""订单工具集：list_branches/list_stylists/create_draft_order 等。
+
+P2-权限对齐: 高危工具 (confirm_order / cancel_order) 用 @require_permission_decision 装饰,
+走自研 PermissionEngine 三态判定 (ALLOWED / ASKING / DENIED).
+"""
 from __future__ import annotations
 
 import json
@@ -9,6 +13,7 @@ from typing import Optional
 
 from sqlalchemy import select, func
 
+from app.core.tool_permission import require_permission_decision
 from app.db.models import Order, Service, Stylist, Branch
 from app.db.session import async_session_maker
 
@@ -172,6 +177,7 @@ async def update_order_fields(
         return "\n".join(lines)
 
 
+@require_permission_decision("confirm_order")
 async def confirm_order(user_id: int, order_id: int) -> str:
     """用户确认所有信息无误后，调用此工具将订单状态改为 pending（待店家确认）。
 
@@ -179,32 +185,15 @@ async def confirm_order(user_id: int, order_id: int) -> str:
     确认后订单出现在店家后台，可供店家处理。
     返回最终订单详情文本。
 
+    P2-权限对齐: 走 @require_permission_decision 装饰器 (PermissionEngine 三态)
+    - ALLOWED → 正常执行下方逻辑
+    - ASKING → 装饰器内部 create_pending_ask, 返回 ask_id 字符串
+    - DENIED → 装饰器抛 PermissionError
+
     Args:
         user_id: 当前登录用户的 ID
         order_id: 要确认的草稿订单ID
     """
-    # P1-9: PermissionEngine 接入（危险操作需 HITL 确认）
-    try:
-        from app.core.permission import engine, PermissionRequest, PermissionDecision
-        req = PermissionRequest(
-            user_id=user_id,
-            tool_name="confirm_order",
-            tool_args={"order_id": order_id},
-        )
-        result = await engine.evaluate(req)
-        if result.decision == PermissionDecision.DENIED:
-            return f"权限拒绝：{result.reason or '该操作被禁止'}"
-        if result.decision == PermissionDecision.ASKING:
-            # P1-9 修复: 闭环 ASKING - 创建 ask_id，前端可调 /api/permission/resolve
-            ask_id = engine.create_pending_ask(req, result)
-            return (
-                f"⚠️ [需要确认] {result.reason or '此操作需要您确认'}。\n"
-                f"ask_id={ask_id}\n"
-                f"请确认后再次提交订单。"
-            )
-    except ImportError:
-        pass  # 权限模块未就绪时降级
-
     async with async_session_maker() as session:
         # 权限校验：只能确认自己的订单
         stmt = select(Order).where(Order.id == order_id, Order.user_id == user_id)
@@ -327,6 +316,53 @@ async def confirm_order(user_id: int, order_id: int) -> str:
             lines.append(f"备注：{order.note}")
         lines.append("\n店家会尽快联系你确认，请保持手机畅通。")
         return "\n".join(lines)
+
+
+@require_permission_decision("cancel_order")
+async def cancel_order(user_id: int, order_id: int, reason: str | None = None) -> str:
+    """用户主动取消一笔预约订单（不可逆，HIGH_RISK 需 HITL 确认）。
+
+    P2-权限对齐: 走 @require_permission_decision 装饰器
+    - 装饰器判定 ASKING 时返回 ask_id 提示, 等待用户最终确认
+    - 用户批准后实际状态变更才执行
+
+    Args:
+        user_id: 当前登录用户的 ID
+        order_id: 要取消的订单 ID
+        reason: 取消原因 (可选, 仅记录用, 不影响逻辑)
+    """
+    from app.db.enums import OrderStatus, can_transition
+
+    async with async_session_maker() as session:
+        # 权限校验：只能取消自己的订单
+        stmt = select(Order).where(Order.id == order_id, Order.user_id == user_id)
+        result = await session.execute(stmt)
+        order = result.scalar_one_or_none()
+        if order is None:
+            return f"错误：找不到订单 {order_id}，或你无权限取消。"
+
+        # 状态机校验：状态机不允许的转移 → 拒绝
+        if not can_transition(order.status, OrderStatus.CANCELLED.value):
+            return (
+                f"❌ 订单 {order.order_no} 当前状态为「{order.status}」，"
+                f"无法取消（终态保护）。"
+            )
+
+        # 执行取消
+        order.status = OrderStatus.CANCELLED.value
+        if reason:
+            # P2-扩展: 取消原因写到 note 字段, 给店家后台审计用
+            existing_note = order.note or ""
+            cancel_marker = f"[用户取消] {reason}"
+            order.note = f"{existing_note}\n{cancel_marker}" if existing_note else cancel_marker
+        await session.commit()
+        await session.refresh(order)
+
+        return (
+            f"✅ 订单 {order.order_no} 已成功取消。\n"
+            + (f"取消原因：{reason}\n" if reason else "")
+            + "如有疑问请联系门店。"
+        )
 
 
 async def list_branches(

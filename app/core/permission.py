@@ -181,28 +181,50 @@ _engine: PermissionEngine | None = None
 
 
 def get_permission_engine() -> PermissionEngine:
-    """获取全局权限引擎（懒加载，默认规则）。"""
+    """获取全局权限引擎（懒加载，默认规则）。
+
+    P0-3: 完整 RBAC 策略:
+    - 查询类工具 (list_/get_) → ALLOWED (只读, 安全)
+    - 写操作类工具 (update_/confirm_/cancel_) → ASKING (需用户确认)
+    - 知识库/联网搜索 → ALLOWED (只读, 安全)
+    """
     global _engine
     if _engine is None:
         _engine = PermissionEngine()
+        # 1. 业务管理工具规则 (P0-3 新增)
         _engine.add_rule(ToolSpecificRule(
             tool_rules={
+                # === 查询类: ALLOWED (只读) ===
+                "list_orders": PermissionDecision.ALLOWED,
+                "get_order_detail": PermissionDecision.ALLOWED,
+                "list_branches": PermissionDecision.ALLOWED,
+                "list_staffs": PermissionDecision.ALLOWED,
+                "list_users": PermissionDecision.ALLOWED,
+                "get_business_stats": PermissionDecision.ALLOWED,
+                # === 写操作类: ASKING (需用户确认) ===
+                "update_order_status": PermissionDecision.ASKING,
+                "confirm_order": PermissionDecision.ASKING,
+                "cancel_order": PermissionDecision.ASKING,
+                # === 知识类: ALLOWED (只读) ===
+                "search_hair_knowledge": PermissionDecision.ALLOWED,
+                "web_search": PermissionDecision.ALLOWED,
+                # === Booking 工具 (C 端预约) ===
                 "create_draft_order": PermissionDecision.ALLOWED,
                 "update_order_fields": PermissionDecision.ALLOWED,
-                "list_branches": PermissionDecision.ALLOWED,
                 "list_stylists": PermissionDecision.ALLOWED,
                 "recommend_services": PermissionDecision.ALLOWED,
-                "search_hair_knowledge": PermissionDecision.ALLOWED,
-                "confirm_order": PermissionDecision.ASKING,  # 最终确认需用户同意
-                "cancel_order": PermissionDecision.ASKING,  # 取消需用户主动确认
             },
             reasons={
-                "confirm_order": "涉及最终金钱和时间承诺，需用户确认",
-                "cancel_order": "取消操作不可逆，需用户确认",
+                "update_order_status": "修改订单状态属于写操作, 需用户确认",
+                "confirm_order": "确认订单涉及金钱和时间承诺, 需用户确认",
+                "cancel_order": "取消订单不可逆, 需用户确认",
             },
             messages={
-                "confirm_order": "您即将确认这笔预约，请确认信息无误。",
-                "cancel_order": "您即将取消此预约，取消后不可恢复。",
+                "update_order_status": "您即将修改订单状态, 此操作会立即生效. 请确认.",
+                "confirm_order": "您即将确认这笔预约, 请确认信息无误.",
+                "cancel_order": "您即将取消此预约, 取消后不可恢复.",
             },
         ))
+        # 2. 默认: 其他工具 ALLOWED
+        _engine.add_rule(AllowAllRule())
     return _engine
