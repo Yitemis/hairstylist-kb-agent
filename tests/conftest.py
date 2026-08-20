@@ -4,7 +4,7 @@
 - pytest-asyncio 用 session-scoped event_loop fixture
 - asyncpg 连接绑定到 fixture 的 loop（避免 "different loop" 错）
 - init_db 在 loop 内创建连接池
-- 每个测试清空 Milvus + PG（避免测试间污染）
+- 每个测试清空 pgvector child_chunks + PG（避免测试间污染）
 """
 import asyncio
 import os
@@ -17,6 +17,9 @@ os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+asyncpg://hair:hair123@localhost:5432/hairstylist",
 )
+
+# P2-基础设施: 测试默认用 pgvector 引擎
+os.environ.setdefault("VECTOR_STORE_ENGINE", "pgvector")
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -46,23 +49,34 @@ def init_db_session(event_loop):
 
 
 @pytest.fixture(autouse=True)
-def _milvus_cleanup(request):
-    """每个测试前清空 Milvus，但 keep_milvus marker 可跳过。"""
-    has_marker = request.node.get_closest_marker("keep_milvus") is not None
+def _pgvector_cleanup(request):
+    """每个测试前清空 child_chunks 表 (替代 Milvus drop_collection).
+
+    keep_pgvector marker 可跳过 (用于 image 共享索引的 e2e 测试).
+    """
+    has_marker = request.node.get_closest_marker("keep_pgvector") is not None
     if has_marker:
-        print("[CONFTEST] keep_milvus detected, skip drop")
+        print("[CONFTEST] keep_pgvector detected, skip truncate")
         yield
         return
     try:
-        from pymilvus import MilvusClient
-        client = MilvusClient(uri="http://localhost:19530")
-        for col in client.list_collections():
-            try:
-                client.drop_collection(col)
-            except Exception:
-                pass
-    except Exception:
-        pass
+        from app.db.session import async_session_maker
+        from sqlalchemy import text
+
+        async def _truncate():
+            async with async_session_maker() as s:
+                # child_chunks 没有 FK, 直接 TRUNCATE 即可
+                await s.execute(text("TRUNCATE TABLE child_chunks"))
+                await s.commit()
+
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_truncate())
+        finally:
+            loop.close()
+    except Exception as e:
+        # pgvector 不可用时跳过, 允许跑不需要 DB 的测试
+        print(f"[CONFTEST] pgvector cleanup skipped: {e}")
     yield
 
 

@@ -39,7 +39,8 @@ class OrderPublic(BaseModel):
 
     id: int
     order_no: str
-    user_id: int
+    # B 端电话预约场景 user_id 可空 (P1, alembic 0010)
+    user_id: int | None = None
     branch_id: int | None = None
     branch_name: str | None = None
     customer_name: str | None = None
@@ -93,6 +94,8 @@ class OrderListItem(BaseModel):
     appointment_time: time | None = None
     end_time: time | None = None
     total_price: float | None = None
+    customer_name: str | None = None
+    customer_phone: str | None = None
     status: str
     created_at: datetime
 

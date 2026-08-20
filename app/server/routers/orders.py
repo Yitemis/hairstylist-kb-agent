@@ -13,7 +13,7 @@ from sqlalchemy.orm import joinedload
 
 from app.auth.deps import CurrentUser, get_current_user, require_staff, require_user
 from app.core.middleware_idempotency import idempotent
-from app.db.models import Order, Stylist, Service
+from app.db.models import Branch, Order, Service, Stylist
 from app.db.session import get_session
 from app.schemas.order import (
     OrderCreate,
@@ -258,7 +258,10 @@ async def admin_list_orders(
     session: Annotated[AsyncSession, Depends(get_session)],
     status: str | None = Query(None, description="按状态过滤"),
 ) -> list[OrderListItem]:
-    """店家查看所有订单，可按状态过滤。"""
+    """店家查看所有订单，可按状态过滤。
+
+    B 端不展示草稿状态的订单 (草稿仅在 C 端对话流临时存在)。
+    """
     stmt = (
         select(
             Order.id,
@@ -270,11 +273,14 @@ async def admin_list_orders(
             Order.appointment_time,
             Order.end_time,
             Order.total_price,
+            Order.customer_name,
+            Order.customer_phone,
             Order.status,
             Order.created_at,
             Stylist.name.label("stylist_name"),
         )
         .outerjoin(Order.stylist)
+        .where(Order.status != "draft")
     )
     if status is not None:
         stmt = stmt.where(Order.status == status)
@@ -359,10 +365,13 @@ async def cancel_my_order(
 @router.post("/admin/orders", response_model=OrderPublic, summary="店家手工下单 (电话预约)")
 async def admin_create_order(
     body: OrderCreate,
-    current: Annotated[CurrentUser, Depends(require_user)],
+    current: Annotated[CurrentUser, Depends(require_staff)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> OrderPublic:
-    """B 端店家手工下单：电话预约场景。status 直接 confirmed (已确认)."""
+    """B 端店家手工下单：电话预约场景。status 直接 confirmed (已确认).
+
+    业务流程：用户电话联系店家预约，店家录入信息 → 订单直接是「已确认」状态。
+    """
     if body.stylist_id is not None:
         stylist = await session.get(Stylist, body.stylist_id)
         if stylist is None or not stylist.is_active:
@@ -395,7 +404,8 @@ async def admin_create_order(
     order_no = f"{body.appointment_date.strftime('%y%m%d')}{secrets.token_hex(4).upper()}"
     order = Order(
         order_no=order_no,
-        user_id=current.id,
+        # B 端电话预约: 用户尚未注册 C 端账号, 不关联 user_id
+        user_id=None,
         branch_id=body.branch_id,
         customer_name=body.customer_name,
         customer_phone=body.customer_phone,
@@ -423,44 +433,37 @@ async def admin_create_order(
 async def admin_update_order_status(
     order_id: int,
     body: dict,  # {"new_status": "confirmed", "note": "..."}
-    current: Annotated[CurrentUser, Depends(require_user)],
+    current: Annotated[CurrentUser, Depends(require_staff)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:
-    """状态机: draft -> pending -> confirmed -> done / cancelled.
+    """状态机: pending -> confirmed -> done / cancelled.
 
-    合法转换:
-      - draft -> pending (草稿已确认)
-      - draft -> cancelled (直接取消草稿)
+    合法转换 (从 enums.ORDER_STATUS_TRANSITIONS 统一管理):
       - pending -> confirmed (店家确认)
       - pending -> cancelled (店家拒绝)
       - confirmed -> done (完成服务)
       - confirmed -> cancelled (店家取消)
+    注: 草稿状态仅 C 端对话流使用, B 端不参与。
     """
+    from app.db.enums import can_transition
     from app.db.models import Order as OrderModel
 
     new_status = body.get("new_status", "").strip()
     note = body.get("note", "").strip() or None
 
-    ALLOWED = {
-        "draft":     ["pending", "cancelled"],
-        "pending":   ["confirmed", "cancelled"],
-        "confirmed": ["done", "cancelled"],
-        "done":      [],
-        "cancelled": [],
-    }
-    VALID_STATUSES = {"draft", "pending", "confirmed", "done", "cancelled"}
-
-    if new_status not in VALID_STATUSES:
+    if new_status not in {"pending", "confirmed", "done", "cancelled"}:
         raise HTTPException(400, f"无效状态: {new_status}")
 
     order = await session.get(OrderModel, order_id)
     if order is None:
         raise HTTPException(404, "订单不存在")
 
-    if new_status not in ALLOWED.get(order.status, []):
+    if not can_transition(order.status, new_status):
         raise HTTPException(400, f"订单当前状态 {order.status} 不能转 {new_status}")
 
     order.status = new_status
+    if note:
+        order.note = (order.note or "") + f"\n[{datetime.now().isoformat()}] {note}"
     await session.commit()
     await session.refresh(order)
     return {
@@ -477,13 +480,21 @@ async def admin_update_order_status(
 @router.delete("/admin/orders/{order_id}", summary="店家删除订单")
 async def admin_delete_order(
     order_id: int,
-    current: Annotated[CurrentUser, Depends(require_user)],
+    current: Annotated[CurrentUser, Depends(require_staff)],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> dict:
-    """B 端店家删除订单 (硬删除)。释放空间 + 避免重复入库。"""
+    """B 端店家删除订单 (硬删除)。仅允许删除「已取消」状态的订单。
+
+    业务流程: 商家把订单置为已取消后, 可在订单管理列表里点「删除」从数据库彻底清除。
+    """
     order = await session.get(Order, order_id)
     if order is None:
         raise HTTPException(404, "订单不存在")
+    if order.status != "cancelled":
+        raise HTTPException(
+            status_code=400,
+            detail=f"仅「已取消」订单可删除，当前状态: {order.status}",
+        )
     await session.delete(order)
     await session.commit()
     return {"status": "ok", "deleted": order_id}

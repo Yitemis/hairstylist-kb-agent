@@ -37,7 +37,11 @@ export async function request<T = any>(
   if (!response.ok) {
     if (response.status === 401) {
       localStorage.clear()
-      window.location.href = '/customer/login'
+      // 根据当前路径决定跳哪个登录页: admin 路由 → /admin/login, 否则 → /customer/login
+      const loginPath = window.location.pathname.startsWith('/admin')
+        ? '/admin/login'
+        : '/customer/login'
+      window.location.href = loginPath
       throw new ApiError(401, data?.detail || '未授权，请重新登录')
     }
     throw new ApiError(response.status, data?.detail || `请求错误: ${response.status}`)

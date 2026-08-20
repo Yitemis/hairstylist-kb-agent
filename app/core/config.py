@@ -69,30 +69,33 @@ class ModelConfig:
 
 @dataclass
 class VectorStoreConfig:
-    """向量库配置（生产级多引擎支持）。
+    """向量库配置 (P2-基础设施: pgvector 替代 Milvus).
 
-    引擎选择：
-    - milvus（默认，生产推荐）：Docker Compose 独立部署，带 Attu 可视化面板
-      启动命令：docker-compose -f ops/docker-compose.yml up -d
-      面板地址：http://localhost:3001
-    - qdrant-local：Qdrant Python 内嵌本地文件（快速开发）
+    引擎选择:
+    - pgvector (默认, 生产推荐): PostgreSQL pgvector 扩展, 跟业务库一个实例
+      安装: CREATE EXTENSION vector; (在 PG 容器内执行)
+      可视化: DBeaver / pgAdmin / 自建 /api/rag/inspect 端点
+    - milvus (deprecated): 仅供旧部署回滚, 新部署请用 pgvector
+    - qdrant-local: Qdrant Python 内嵌本地文件 (快速开发, 弃用)
     """
 
-    engine: str = "milvus"  # milvus / qdrant-local
+    engine: str = "pgvector"  # pgvector (default) / milvus (deprecated) / qdrant-local
     host: str = "localhost"
-    port: int = 19530
+    port: int = 5432  # pgvector 用 PG 端口
     uri: str = ""
     api_key: str = ""
     path: str = "./data/qdrant"  # qdrant-local 数据目录
-    collection: str = "hairstylist_kb"
+    collection: str = "hairstylist_kb"  # 兼容字段, pgvector 用 child_chunks 表
     metric_type: str = "COSINE"
     # N4 修复: 默认 1024 (硅基流动 BAAI/bge-large-zh-v1.5 的真实维度)
     dims: int = 1024
 
     @property
     def is_valid(self) -> bool:
+        if self.engine == "pgvector":
+            return True  # 默认 localhost:5432 无需额外配置
         if self.engine == "milvus":
-            return True  # 默认 localhost:19530 无需额外配置
+            return True  # 向后兼容
         return True
 
 
@@ -236,9 +239,9 @@ embedding_config = model_configs["embedding"]
 rerank_config = model_configs["rerank"]
 
 vector_store_config = VectorStoreConfig(
-    engine=_get_env("VECTOR_STORE_ENGINE", "milvus"),
+    engine=_get_env("VECTOR_STORE_ENGINE", "pgvector"),  # P2-基础设施: 默认改 pgvector
     host=_get_env("VECTOR_STORE_HOST", "localhost"),
-    port=int(_get_env("VECTOR_STORE_PORT", "19530")),
+    port=int(_get_env("VECTOR_STORE_PORT", "5432")),  # pgvector 用 PG 端口
     uri=_get_env("VECTOR_STORE_URI", ""),
     api_key=_get_env("VECTOR_STORE_API_KEY", ""),
     path=_get_env("VECTOR_STORE_PATH", "./data/qdrant"),

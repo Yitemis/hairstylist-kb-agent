@@ -13,6 +13,7 @@ const CustomerOrderDetailPage = lazy(() => import('./pages/customer/OrderDetailP
 // Admin pages
 const AdminLoginPage = lazy(() => import('./pages/admin/AdminLoginPage'))
 const KnowledgePage = lazy(() => import('./pages/admin/KnowledgePage'))
+const DocumentManagePage = lazy(() => import('./pages/admin/DocumentManagePage'))
 const OrderManagePage = lazy(() => import('./pages/admin/OrderManagePage'))
 const BranchManagePage = lazy(() => import('./pages/admin/BranchManagePage'))
 const StylistManagePage = lazy(() => import('./pages/admin/StylistManagePage'))
@@ -169,6 +170,7 @@ export default function App() {
         {/* Admin routes */}
         <Route path="/admin/login"      element={<Suspense fallback={null}><AdminLoginPage /></Suspense>} />
         <Route path="/admin/knowledge"  element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><KnowledgePage /></Suspense></ErrorBoundary></AdminGuard>} />
+        <Route path="/admin/documents" element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><DocumentManagePage /></Suspense></ErrorBoundary></AdminGuard>} />
         <Route path="/admin/orders"     element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><OrderManagePage /></Suspense></ErrorBoundary></AdminGuard>} />
         <Route path="/admin/branches"   element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><BranchManagePage /></Suspense></ErrorBoundary></AdminGuard>} />
         <Route path="/admin/stylists"   element={<AdminGuard><ErrorBoundary><Suspense fallback={null}><StylistManagePage /></Suspense></ErrorBoundary></AdminGuard>} />

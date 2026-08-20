@@ -433,3 +433,9 @@ button { cursor: pointer; }
 }
 .switch input:checked + .switch-slider { background: var(--primary); }
 .switch input:checked + .switch-slider::before { transform: translateX(16px); }
+
+/* P0-3: 流式输出闪烁光标 */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}

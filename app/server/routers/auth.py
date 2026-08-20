@@ -125,18 +125,19 @@ async def login(
 
 
 
-@router.post("/staff/login", response_model=TokenResponse, summary="员工登录")
+@router.post("/staff/login", summary="员工登录")
 async def staff_login(
     body: StaffLoginRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
-) -> TokenResponse:
+):
     """员工登录：查 staffs 表 (员工)，返回 role='admin'。
 
     解决 AdminGuard 拒绝 'worker' role 的问题：员工登录后强制 role='admin'。
+    P1-4: HttpOnly Cookie 鉴权（与 /api/auth/login 一致）。
     """
     from app.db.models import Staff
     from app.auth.security import verify_password, create_access_token
-    
+
     staff = await session.scalar(select(Staff).where(Staff.phone == body.phone))
     if staff is None or not verify_password(body.password, staff.password_hash):
         raise HTTPException(
@@ -146,12 +147,27 @@ async def staff_login(
     token = create_access_token(
         subject=staff.id, role="admin", extra={"name": staff.name, "is_staff": True}
     )
-    # 返回 role='admin' (强制覆盖)
     user_dict = {
         "id": staff.id, "phone": staff.phone, "name": staff.name,
         "role": "admin", "avatar": getattr(staff, 'avatar', None),
     }
-    return TokenResponse(access_token=token, user=user_dict)
+    # P1-4: HttpOnly Cookie（防 XSS 偷 token）
+    is_prod = os.environ.get("HAIRSTYLIST_ENV", "dev") == "prod"
+    response = JSONResponse(content={
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user_dict,
+    })
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=is_prod,
+        samesite="strict",
+        max_age=60 * 60 * 24 * 7,
+        path="/",
+    )
+    return response
 
 
 

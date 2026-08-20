@@ -17,9 +17,13 @@ n# --- 缓存 ---
 # Redis (生产缓存) - 可选, 没装则 fallback 到内存 LRU
 redis>=5.0.0
 
-# --- 向量库（生产版，独立部署 Milvus） ---
-# 生产环境向量检索引擎，支持大规模向量存储与 ANN 检索
-pymilvus>=2.3.0
+# --- 向量库 (P2-基础设施: pgvector 替代 Milvus) ---
+# pgvector 是 PostgreSQL 扩展, 跟业务库同实例, 无需独立部署
+# pip install pgvector (Python 客户端, SQLAlchemy 集成)
+pgvector>=0.3.0
+
+# --- 旧 Milvus 客户端 (deprecated, 仅供回滚, 新部署忽略) ---
+# pymilvus>=2.3.0
 
 # --- LLM / Embedding / Rerank 客户端 ---
 # OpenAI 兼容客户端：Embedding、Chat、VLM 调用

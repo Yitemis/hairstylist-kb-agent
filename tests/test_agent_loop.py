@@ -22,29 +22,37 @@ async def test_knowledge_agent_has_tool():
 
 
 @pytest.mark.asyncio
-async def test_booking_agent_has_6_tools():
-    """Booking Agent 必须装 6 个 booking 工具 (P1-8)。"""
+async def test_booking_agent_has_7_tools():
+    """Booking Agent 必须装 7 个 booking 工具 (P1-8 + P2-权限对齐 加 cancel_order)。"""
     from app.core.booking_agent_factory import get_booking_agent
     agent = await get_booking_agent()
     tools = [t.name for t in agent.toolkit.tool_groups[0].tools]
     expected = {
         "create_draft_order", "update_order_fields", "confirm_order",
+        "cancel_order",  # P2-权限对齐: 新增高危工具
         "list_branches", "list_stylists", "recommend_services",
     }
     assert expected.issubset(set(tools)), f"缺工具: {expected - set(tools)}"
-    assert len(tools) == 6, f"工具数错: {len(tools)}"
+    assert len(tools) == 7, f"工具数错: {len(tools)}"
 
 
 @pytest.mark.asyncio
-async def test_tool_registry_has_7_tools():
-    """工具注册表 7 个（1 RAG + 6 booking）。"""
+async def test_tool_registry_has_8_booking_and_kb_tools():
+    """P2-权限对齐: 验证 1 RAG + 6 booking + cancel_order 共 8 个核心工具都注册了.
+
+    注: 完整 tool registry 还包含 6 业务管理 + 1 web_search 共 15 个, 但本测试聚焦
+    P2 改动的核心工具集.
+    """
     from app.core.tool_registry import registry
     tools = registry.get_tool_names()
-    assert len(tools) == 7, f"工具数: {len(tools)} - {tools}"
-    assert "search_hair_knowledge" in tools
-    for t in ["create_draft_order", "update_order_fields", "confirm_order",
-              "list_branches", "list_stylists", "recommend_services"]:
-        assert t in tools, f"缺 {t}"
+    # 验证 P2 改动的 8 个核心工具都存在
+    expected_core = {
+        "search_hair_knowledge",
+        "create_draft_order", "update_order_fields", "confirm_order",
+        "cancel_order",  # P2-权限对齐: 新增高危工具
+        "list_branches", "list_stylists", "recommend_services",
+    }
+    assert expected_core.issubset(set(tools)), f"缺核心工具: {expected_core - set(tools)}"
 
 
 @pytest.mark.asyncio

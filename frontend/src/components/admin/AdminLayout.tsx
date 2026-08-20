@@ -14,6 +14,17 @@ const NAV_ITEMS = [
     ),
   },
   {
+    path: '/admin/documents',
+    label: '文档管理',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <path d="M3 2h8l4 4v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+        <path d="M11 2v4h4" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
+        <path d="M5 9h8M5 12h8M5 15h5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/>
+      </svg>
+    ),
+  },
+  {
     path: '/admin/orders',
     label: '订单管理',
     icon: (
@@ -125,7 +136,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         <nav style={{ flex: 1, padding: '12px 10px', overflowY: 'auto' }}>
           {/* Business section */}
           <p style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, padding: '6px 12px 4px', marginBottom: 2 }}>业务管理</p>
-          {NAV_ITEMS.slice(0, 5).map(item => {
+          {NAV_ITEMS.slice(0, 6).map(item => {
             const active = loc.pathname === item.path
             return (
               <button
@@ -142,7 +153,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           })}
           {/* System section */}
           <p style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 600, padding: '14px 12px 4px', marginBottom: 2 }}>系统工具</p>
-          {NAV_ITEMS.slice(5).map(item => {
+          {NAV_ITEMS.slice(6).map(item => {
             const active = loc.pathname === item.path
             return (
               <button

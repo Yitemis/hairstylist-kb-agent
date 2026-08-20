@@ -211,3 +211,55 @@ export async function publishDocument(documentId: string, isPublished: boolean =
     method: 'POST', body: JSON.stringify({ is_published: isPublished }),
   })
 }
+
+
+/* ============================================================
+ * 文档管理 (B 端) - 完整 lifecycle
+ * ============================================================ */
+export interface DocumentChunk {
+  parent_id: string
+  position: number
+  token_num: number
+  content: string
+  preview: string
+}
+
+export async function uploadDocument(file: File, category: string = 'general') {
+  const fd = new FormData()
+  fd.append('file', file)
+  fd.append('category', category)
+  // 注意: 不能自己设 Content-Type, 浏览器自动加 multipart boundary
+  const resp = await fetch('/api/rag/upload', {
+    method: 'POST',
+    body: fd,
+    credentials: 'include',
+  })
+  const text = await resp.text()
+  let data: any = null
+  try { data = text ? JSON.parse(text) : null } catch { /* not JSON */ }
+  if (!resp.ok) {
+    const err = new Error(data?.detail || `上传失败: ${resp.status}`) as any
+    err.status = resp.status
+    throw err
+  }
+  return data
+}
+
+export async function parseDocument(documentId: string) {
+  return request(`/api/rag/parse/${documentId}`, { method: 'POST' })
+}
+
+export async function getDocumentChunks(documentId: string, limit: number = 50, offset: number = 0) {
+  return request<{ document_id: string; total: number; chunks: DocumentChunk[] }>(
+    `/api/rag/documents/${documentId}/chunks?limit=${limit}&offset=${offset}`,
+  )
+}
+
+export async function deleteDocument(documentId: string) {
+  return request(`/api/rag/documents/${documentId}`, { method: 'DELETE' })
+}
+
+export async function recallTest(query: string, topK: number = 5) {
+  const q = encodeURIComponent(query)
+  return request(`/api/rag/test-recall?query=${q}&top_k=${topK}`)
+}

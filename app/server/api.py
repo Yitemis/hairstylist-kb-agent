@@ -226,7 +226,7 @@ async def reload_configuration() -> dict:
 
 
 @app.get("/metrics", summary="Prometheus 指标")
-async def metrics() -> Response:
+async def metrics():
     """Prometheus 监控指标(Grafana 接入)."""
     from fastapi.responses import Response
     from app.core.metrics import render_metrics
@@ -352,7 +352,7 @@ async def chat(
                 "sources_count": mm_result["sources_count"],
                 "images_count": mm_result["images_count"],
             }
-        result = await run_with_middlewares(ctx, lambda: chat_service.chat_handler(body, ctx))
+        result = await run_with_middlewares(ctx, lambda: chat_service.chat_handler(body, ctx, enable_self_rag=body.get("enable_self_rag", False)))
         chat_requests_total.labels(
             mode=result.get("mode", "unknown"), result="success"
         ).inc()

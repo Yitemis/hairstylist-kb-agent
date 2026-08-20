@@ -117,10 +117,13 @@ async def search_hair_knowledge(query: str) -> str:
     )
     if not result.hits:
         return "知识库中暂无相关内容。"
-    # 构造 context 文本
+    # 构造 context 文本 (P0-3 修复: 去掉 h.page — RetrievalHit 无此属性)
     parts = []
-    for h in result.hits:
-        parts.append(f"【来源: {h.filename or h.document_id} p{h.page}】\n{h.content[:500]}")
+    for i, h in enumerate(result.hits, 1):
+        source = getattr(h, "filename", None) or getattr(h, "document_id", "unknown")
+        content = (getattr(h, "content", "") or "")[:500]
+        score = getattr(h, "score", 0.0)
+        parts.append(f"【来源{i}】 {source} (相关度: {score:.2f})\n{content}")
     return "\n\n".join(parts)
 
 
@@ -140,12 +143,22 @@ registry.register(
 # ------------------------------------------------------------------
 
 from app.core.tools.order_tools import (
+    cancel_order,
     confirm_order,
     create_draft_order,
     list_branches,
     list_stylists,
     recommend_services,
     update_order_fields,
+)
+# P0-3: 业务管理工具 (B 端后台用)
+from app.core.tools.business_tools import (
+    get_business_stats,
+    get_order_detail,
+    list_orders,
+    list_staffs,
+    list_users,
+    update_order_status,
 )
 
 registry.register(
@@ -179,7 +192,20 @@ registry.register(
     description=(
         "所有信息填写完整后，用户确认，调用此工具将订单提交给店家。"
         "提交后状态变为pending，出现在店家后台等待处理。"
+        "HIGH_RISK：会触发用户二次确认（返回 ask_id），需用户批准后才会真正提交。"
         "参数：user_id（当前用户ID），order_id（订单ID）。"
+    ),
+)
+
+# P2-权限对齐: 注册 cancel_order 工具 (HIGH_RISK, 装饰器已做 HITL)
+registry.register(
+    cancel_order,
+    name="cancel_order",
+    description=(
+        "用户主动取消一笔预约订单（不可逆操作）。"
+        "HIGH_RISK：会触发用户二次确认（返回 ask_id），需用户批准后才会真正取消。"
+        "参数：user_id（当前用户ID），order_id（要取消的订单ID），"
+        "reason（取消原因，可选，会写入订单备注供店家审计）。"
     ),
 )
 
@@ -210,5 +236,226 @@ registry.register(
         "根据用户需求描述，推荐适合的服务项目。"
         "当用户说「不知道做什么项目」「推荐项目」时调用。"
         "参数：user_id（当前用户ID，仅占位鉴权），user_description（用户需求描述）。"
+    ),
+)
+
+
+# ============================================================
+# P0-3: 业务管理工具 (B 端后台用, 不依赖 user_id)
+# ============================================================
+registry.register(
+    list_orders,
+    name="list_orders",
+    description=(
+        "查订单列表 (B 端后台最常用). "
+        "支持按状态/分店/电话/天数过滤. "
+        "当用户问「查订单」「看订单列表」「最近订单」时调用. "
+        "参数 (都可省略): status (pending/confirmed/done/cancelled), branch_id (分店ID), phone (顾客电话), days (看最近N天, 默认7), limit (返回条数, 默认20)."
+    ),
+)
+
+registry.register(
+    get_order_detail,
+    name="get_order_detail",
+    description=(
+        "查单个订单的完整详情 (顾客/分店/发型师/时间/价格/备注). "
+        "当用户说「查订单 #5」「看这个订单的详情」时调用. "
+        "参数: order_id (订单ID, 必填)."
+    ),
+)
+
+registry.register(
+    update_order_status,
+    name="update_order_status",
+    description=(
+        "改订单状态 (确认/完成/取消). "
+        "当用户说「把订单 #5 改成已完成」「确认这个订单」时调用. "
+        "参数: order_id (必填), new_status (pending/confirmed/done/cancelled, 必填), note (备注, 可选)."
+    ),
+)
+
+registry.register(
+    list_staffs,
+    name="list_staffs",
+    description=(
+        "查员工列表 (含电话/分店/在岗状态). "
+        "当用户问「查员工」「列出发型师」「分店有什么员工」时调用. "
+        "参数: branch_id (分店ID, 可选, 不传=全部)."
+    ),
+)
+
+registry.register(
+    list_users,
+    name="list_users",
+    description=(
+        "查 C 端用户列表. "
+        "当用户说「查用户」「最近注册的客户」「查电话 138xxx」时调用. "
+        "参数: phone (模糊搜索), days (默认30), limit (默认20)."
+    ),
+)
+
+registry.register(
+    get_business_stats,
+    name="get_business_stats",
+    description=(
+        "B 端业务统计 (订单数/营收/各状态分布/分店数/用户数/员工数). "
+        "当用户问「最近业务怎么样」「这个月订单多少」「营收多少」时调用. "
+        "参数: days (统计最近N天, 默认7)."
+    ),
+)
+
+
+# ============================================================
+# P0-3: 联网搜索工具 (知识库 fallback)
+# ============================================================
+# 多 provider 支持: DuckDuckGo (免费, 无 key) / Tavily / Bocha
+# 借鉴 WeKnora §5 知识检索多 KB 模式 + 实时联网兜底
+
+async def web_search(query: str, max_results: int = 5) -> str:
+    """联网搜索 (知识库 fallback).
+
+    当知识库无相关内容时, 调此工具从互联网实时获取。
+    默认用 DuckDuckGo 免费 API (无需 key, 适合开发/测试)。
+    生产建议在 .env 设 WEB_SEARCH_PROVIDER=tavily + WEB_SEARCH_API_KEY=xxx。
+
+    Args:
+        query: 搜索关键词
+        max_results: 返回前 N 条结果 (默认 5)
+
+    Returns:
+        格式化好的搜索结果文本 (带来源链接)
+    """
+    import os
+    import httpx
+    import logging
+    logger = logging.getLogger(__name__)
+
+    provider = os.environ.get("WEB_SEARCH_PROVIDER", "duckduckgo").lower()
+    api_key = os.environ.get("WEB_SEARCH_API_KEY", "")
+
+    try:
+        if provider == "tavily" and api_key:
+            return await _web_search_tavily(query, max_results, api_key)
+        elif provider == "bocha" and api_key:
+            return await _web_search_bocha(query, max_results, api_key)
+        else:
+            return await _web_search_duckduckgo(query, max_results)
+    except Exception as e:
+        logger.warning("web_search failed: %s", e)
+        return f"联网搜索失败: {type(e).__name__}: {e}"
+
+
+async def _web_search_duckduckgo(query: str, max_results: int) -> str:
+    """DuckDuckGo Instant Answer API (免费, 无需 key, 限英文).
+
+    优点: 无需注册, 适合 demo
+    缺点: 限英文, 国内可能超时
+    """
+    import httpx
+    import asyncio
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:  # P0-3: 短超时避免 hang
+            # DDG Instant Answer API
+            r = await client.get("https://api.duckduckgo.com/", params={
+                "q": query,
+                "format": "json",
+                "no_html": "1",
+                "skip_disambig": "1",
+            })
+            data = r.json()
+            results = []
+            # Abstract (summary)
+            if data.get("AbstractText"):
+                results.append(f"[摘要] {data['AbstractText']}\n来源: {data.get('AbstractURL', 'N/A')}")
+            # Related topics
+            for topic in data.get("RelatedTopics", [])[:max_results]:
+                if isinstance(topic, dict) and topic.get("Text"):
+                    text = topic["Text"]
+                    url = topic.get("FirstURL", "")
+                    results.append(f"- {text}\n  来源: {url}")
+            if not results:
+                # 兜底: 用 HTML 版
+                r2 = await client.get("https://html.duckduckgo.com/html/", params={"q": query})
+                import re
+                links = re.findall(r'<a[^>]+href="([^"]+)"[^>]*>([^<]+)</a>', r2.text)
+                for url, title in links[:max_results]:
+                    if "duckduckgo" not in url and url.startswith("http"):
+                        results.append(f"- {title.strip()}\n  来源: {url}")
+            if not results:
+                return f"未在 DuckDuckGo 搜到「{query}」相关结果。\n\n建议:\n1) 换更精确的英文关键词\n2) 在 .env 设 WEB_SEARCH_PROVIDER=tavily + WEB_SEARCH_API_KEY=xxx (Tavily 适合生产)\n3) 用 search_hair_knowledge 查本地知识库"
+            return "\n\n".join(results[:max_results])
+    except (httpx.ConnectTimeout, httpx.ConnectError, asyncio.TimeoutError) as e:
+        return (
+            f"⚠️ 联网搜索不可用: {type(e).__name__}\n\n"
+            f"无法访问 DuckDuckGo (国内/防火墙可能拦截).\n\n"
+            f"降级方案:\n"
+            f"1) 在 .env 配置: WEB_SEARCH_PROVIDER=tavily, WEB_SEARCH_API_KEY=tvly-xxx\n"
+            f"2) 或: WEB_SEARCH_PROVIDER=bocha, WEB_SEARCH_API_KEY=sk-xxx (博查, 国内可用)\n"
+            f"3) 暂用本地知识库 (search_hair_knowledge) 代替"
+        )
+
+
+async def _web_search_tavily(query: str, max_results: int, api_key: str) -> str:
+    """Tavily 搜索 (生产推荐, 支持中文)."""
+    import httpx
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.post("https://api.tavily.com/search", json={
+            "api_key": api_key,
+            "query": query,
+            "max_results": max_results,
+            "search_depth": "advanced",
+            "include_answer": True,
+        })
+        r.raise_for_status()
+        data = r.json()
+        parts = []
+        # answer (LLM 总结)
+        if data.get("answer"):
+            parts.append(f"[Tavily 总结] {data['answer']}")
+        # results
+        for r_item in data.get("results", [])[:max_results]:
+            title = r_item.get("title", "")
+            content = r_item.get("content", "")[:300]
+            url = r_item.get("url", "")
+            parts.append(f"- {title}\n  {content}\n  来源: {url}")
+        if not parts:
+            return f"Tavily 未搜到「{query}」相关结果"
+        return "\n\n".join(parts)
+
+
+async def _web_search_bocha(query: str, max_results: int, api_key: str) -> str:
+    """博查 (Bocha) 搜索 - 国内可用, 支持中文."""
+    import httpx
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        r = await client.post("https://api.bochaai.com/v1/web-search", json={
+            "apiKey": api_key,
+            "query": query,
+            "summary": True,
+            "count": max_results,
+        })
+        r.raise_for_status()
+        data = r.json()
+        parts = []
+        # summary
+        if data.get("data", {}).get("summary"):
+            parts.append(f"[博查 总结] {data['data']['summary']}")
+        for item in data.get("data", {}).get("webPages", {}).get("value", [])[:max_results]:
+            title = item.get("name", "")
+            snippet = item.get("snippet", "")[:300]
+            url = item.get("url", "")
+            parts.append(f"- {title}\n  {snippet}\n  来源: {url}")
+        if not parts:
+            return f"博查未搜到「{query}」相关结果"
+        return "\n\n".join(parts)
+
+
+registry.register(
+    web_search,
+    name="web_search",
+    description=(
+        "联网搜索 (实时获取互联网信息, 作为知识库 fallback). "
+        "当 search_hair_knowledge 返回「暂无相关内容」, 或用户问题明显超出美发知识库范围 (如时尚趋势、产品对比、最新政策), "
+        "调此工具. 返回 5 条带来源链接的搜索结果. "
+        "参数: query (搜索关键词, 必填), max_results (返回条数, 可选 1-10, 默认 5)."
     ),
 )
