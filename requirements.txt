@@ -70,3 +70,6 @@ prometheus-client>=0.19.0
 # --- 数据库迁移 ---
 alembic>=1.13.0
 json-repair>=0.25.0  # for LLM 输出容错
+
+# LangGraph (Booking 状态机, P1-3 替换原 booking_agent_factory)
+langgraph>=0.2
