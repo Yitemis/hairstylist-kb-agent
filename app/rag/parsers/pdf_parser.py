@@ -51,6 +51,7 @@ class PdfParser:
         chunk_size: int = 800,
         chunk_overlap: int = 80,
         parent_chunk_size: int = 2000,
+        use_adaptive_tier: bool = True,  # P0: 3-tier 自适应分块
     ) -> List[ParentChunk]:
         binary = self._read_file()
 
@@ -85,7 +86,16 @@ class PdfParser:
             build_child_chunks, build_parent_chunks,
             extract_qa_pairs, merge_qa_into_chunks, split_markdown_by_heading,
         )
-        sections = split_markdown_by_heading(full_text, chunk_size, chunk_overlap)
+        # P0: 自适应分块 (3 tier: heading / heuristic / recursive)
+        if use_adaptive_tier:
+            from app.rag.chunkers.strategy import profile_and_select, chunk_with_tier
+            profile, tier = profile_and_select(full_text)
+            sections = chunk_with_tier(
+                full_text, profile, tier,
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap,
+            )
+        else:
+            sections = split_markdown_by_heading(full_text, chunk_size, chunk_overlap)
         qa_pairs = extract_qa_pairs(full_text)
         if qa_pairs:
             sections = merge_qa_into_chunks(sections, qa_pairs)

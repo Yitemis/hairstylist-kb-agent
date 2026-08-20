@@ -93,7 +93,7 @@ def validate_answer_level(hits, llm_answer=""):
     similarities = [getattr(h, "score", None) for h in hits]
     similarities = [s for s in similarities if s is not None]
     if not similarities:
-        return ValidationResult(False, "answer", "cannot get similarity", ["check Milvus"])
+        return ValidationResult(False, "answer", "cannot get similarity", ["check pgvector"])
     avg_sim = sum(similarities) / len(similarities)
     top1_sim = max(similarities)
     if avg_sim < MIN_AVG_SIMILARITY:

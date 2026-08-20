@@ -11,7 +11,7 @@ import asyncio
 import os
 import pytest
 
-# 测试强制使用 qdrant-local（不需要 Milvus 服务）
+# 测试强制使用 qdrant-local（不需要 pgvector 服务）
 os.environ["VECTOR_STORE_ENGINE"] = "qdrant-local"
 os.environ["VECTOR_STORE_PATH"] = "./data/qdrant_test"
 

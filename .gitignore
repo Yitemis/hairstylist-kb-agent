@@ -46,3 +46,10 @@ logs/
 
 # 测试数据
 tests/fixtures/*.pdf.bak
+
+# 临时上传 (运行时产生)
+data/uploads/
+
+# API schema 导出 (运行时生成)
+openapi.json
+

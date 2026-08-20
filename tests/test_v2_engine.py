@@ -1,4 +1,4 @@
-"""v2_engine: 父块 DB / 子块 Milvus 拆写测试。"""
+"""v2_engine: 父块 DB / 子块 pgvector 拆写测试 (P2-基础设施, 替代 Milvus)."""
 import os
 import asyncio
 import pytest
@@ -9,20 +9,23 @@ pytest_plugins = ["pytest_asyncio"]
 def test_v2_imports():
     from app.rag.v2_engine import (
         index_document, retrieve, RetrievalHit, RetrievalResult,
-        get_milvus_store, reset_state,
+        get_vector_store, get_milvus_store, reset_state,  # 向后兼容
     )
     assert callable(index_document)
     assert callable(retrieve)
+    assert callable(get_vector_store)
 
 
 @pytest.mark.asyncio
-async def test_get_milvus_store():
-    from app.rag.v2_engine import get_milvus_store, reset_state
+async def test_get_vector_store():
+    """P2-基础设施: get_vector_store 返回 PgvectorStore (默认)."""
+    from app.rag.v2_engine import get_vector_store, reset_state
     reset_state()
-    store = await get_milvus_store()
+    store = await get_vector_store()
     assert store is not None
-    assert store.host == "localhost"
-    assert store.port == 19530
+    # P2: 默认应该是 PgvectorStore
+    from app.rag.pgvector_store import PgvectorStore
+    assert isinstance(store, PgvectorStore)
 
 
 @pytest.mark.asyncio

@@ -63,10 +63,20 @@ class MarkdownParser:
         chunk_size: int = 800,
         chunk_overlap: int = 80,
         parent_chunk_size: int = 2000,
+        use_adaptive_tier: bool = True,  # P0: 3-tier 自适应分块 (借鉴 WeKnora §2.1)
     ) -> List[ParentChunk]:
         text = self._read_file()
         chunker = _get_chunker()
-        sections = chunker["split_markdown_by_heading"](text, chunk_size, chunk_overlap)
+        # P0: 自适应分块 (3 tier: heading / heuristic / recursive)
+        if use_adaptive_tier:
+            from app.rag.chunkers.strategy import profile_and_select, chunk_with_tier
+            profile, tier = profile_and_select(text)
+            sections = chunk_with_tier(
+                text, profile, tier,
+                chunk_size=chunk_size, chunk_overlap=chunk_overlap,
+            )
+        else:
+            sections = chunker["split_markdown_by_heading"](text, chunk_size, chunk_overlap)
         qa_pairs = chunker["extract_qa_pairs"](text)
         if qa_pairs:
             sections = chunker["merge_qa_into_chunks"](sections, qa_pairs)

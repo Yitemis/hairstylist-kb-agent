@@ -143,14 +143,14 @@ class TestRAGSignature:
         assert sig.parameters["audience"].default == "all"
 
 
-class TestMilvusStoreAudienceSupport:
-    """MilvusStore 支持 audience filter。"""
-    def test_milvus_store_has_audience_key(self):
-        from app.rag.milvus_store import AUDIENCE_KEY
+class TestPgvectorStoreAudienceSupport:
+    """PgvectorStore 支持 audience filter (P2-基础设施, 替代 MilvusStore)."""
+    def test_pgvector_store_has_audience_key(self):
+        from app.rag.pgvector_store import AUDIENCE_KEY
         assert AUDIENCE_KEY == "audience"
 
     def test_search_accepts_audience_filter(self):
-        from app.rag.milvus_store import MilvusStore
+        from app.rag.pgvector_store import PgvectorStore
         import inspect
-        sig = inspect.signature(MilvusStore.search)
+        sig = inspect.signature(PgvectorStore.search)
         assert "audience_filter" in sig.parameters

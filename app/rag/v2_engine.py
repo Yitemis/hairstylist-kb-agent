@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
-"""RAG engine v2: parent in business DB / child in Milvus (ekbs design).
+"""RAG engine v2: parent in business DB / child in pgvector (ekbs design, P2-基础设施).
 
 Reference: docs/LONG_TERM_MEMORY_EKBS_AI_SERVICE.md
-- Child chunk (800 token): Milvus, payload has parent_id reference
+- Child chunk (800 token): pgvector child_chunks 表, payload has parent_id reference
 - Parent chunk (2000 token): business DB, only stores full text
 - Document: meta info only
 
 Index flow:
-  chunks -> embed -> parent to DB / child to Milvus
+  chunks -> embed -> parent to DB / child to pgvector
 
 Retrieval flow:
-  query -> embed -> Milvus recall child ->
+  query -> embed -> pgvector recall child (HNSW 索引) ->
   aggregate by parent_id -> batch query DB for parent -> Rerank -> Top-K
 """
 from __future__ import annotations
@@ -49,15 +49,46 @@ class RetrievalResult:
 
 
 _milvus_store: Optional[Any] = None
+_pgvector_store: Optional[Any] = None
 
 
 async def get_milvus_store():
-    global _milvus_store
+    """P2-基础设施: 根据配置返回向量库实例 (PgvectorStore 或 MilvusStore).
+
+    v2.0: 统一为 get_vector_store(), 但保留 get_milvus_store() 名称以兼容旧代码.
+    """
+    return await get_vector_store()
+
+
+async def get_vector_store():
+    """根据 vector_store_config.engine 返回对应向量库.
+
+    Returns:
+        PgvectorStore (default, 推荐) 或 MilvusStore (向后兼容, 弃用中)
+    """
+    global _pgvector_store, _milvus_store
+    from app.core.config import vector_store_config
+
+    engine = (vector_store_config.engine or "pgvector").lower()
+
+    if engine == "pgvector":
+        if _pgvector_store is not None:
+            return _pgvector_store
+        from app.rag.pgvector_store import PgvectorStore
+        _dim = int(os.environ.get("VECTOR_DIMS") or os.environ.get("TEXT_EMBEDDING_DIMENSIONS") or "1024")
+        _pgvector_store = PgvectorStore(
+            host=vector_store_config.host or "localhost",
+            port=int(os.environ.get("PGVECTOR_PORT", "5432")),
+            dim=_dim,
+        )
+        _pgvector_store.ensure_collection()
+        logger.info("Vector store: PgvectorStore (dim=%d)", _dim)
+        return _pgvector_store
+
+    # 兜底: Milvus (向后兼容, 已弃用, 仅供旧部署回滚)
     if _milvus_store is not None:
         return _milvus_store
-    from app.rag.milvus_store import MilvusStore, AUDIENCE_KEY
-    from app.core.config import vector_store_config
-    # P2-2 统一 dim 来源：env > text embedding dim > 1024
+    from app.rag.milvus_store import MilvusStore
     _dim = int(os.environ.get("VECTOR_DIMS") or os.environ.get("TEXT_EMBEDDING_DIMENSIONS") or "1024")
     _milvus_store = MilvusStore(
         host=vector_store_config.host or "localhost",
@@ -66,16 +97,45 @@ async def get_milvus_store():
         dim=_dim,
     )
     _milvus_store.ensure_collection()
+    logger.warning("Vector store: MilvusStore (DEPRECATED, 请改用 pgvector)")
     return _milvus_store
 
 
 async def _get_embedding(texts: List[str]) -> List[List[float]]:
-    """纯文本 embedding（用硅基流动 BAAI，便宜快速）。"""
+    """纯文本 embedding（用硅基流动 BAAI，便宜快速）。
+
+    P0 优化: 内部自动 sanitize base64 图片 (借鉴 WeKnora §9.2).
+    """
+    from app.rag.utils.sanitize import sanitize_for_embedding
     from app.embedding import build_embedding_model
     from agentscope.message import TextBlock
+    safe_texts = [sanitize_for_embedding(t) for t in texts]
     model = build_embedding_model(capability="text_embedding")
-    resp = await model([TextBlock(text=t) for t in texts])
+    resp = await model([TextBlock(text=t) for t in safe_texts])
     return resp.embeddings
+
+
+def _safe_text_for_embedding(text: str) -> str:
+    """单个文本 sanitize (embed 前调用, 防 base64 图片爆 token).
+
+    借鉴 WeKnora §9.2: sanitizeForEmbedding.
+    """
+    from app.rag.utils.sanitize import sanitize_for_embedding
+    return sanitize_for_embedding(text)
+
+
+# P0: 文档权限过滤 (借鉴九阳 POC §5: 4 步实施法 Step 4)
+def get_allowed_permission_tags(role: str) -> set:
+    """根据用户角色获取可访问的权限标签集合."""
+    from app.db.enums import PermissionTag, ROLE_PERMISSION_MATRIX
+    return {t.value for t in ROLE_PERMISSION_MATRIX.get(role, set())}
+
+
+def filter_documents_by_role(documents, role: str):
+    """按角色过滤文档列表."""
+    from app.db.enums import filter_by_role as _filter
+    return _filter(documents, role)
+
 
 
 async def index_document(
@@ -89,7 +149,7 @@ async def index_document(
     child_chunk_size: int = 800,
     child_chunk_overlap: int = 80,
 ) -> dict[str, Any]:
-    """Index document: parent-child split, dual-write (parent to DB / child to Milvus)."""
+    """Index document: parent-child split, dual-write (parent to DB / child to pgvector)."""
     # Late import to avoid circular deps
     from app.rag.chunkers.smart_chunker import (
         build_child_chunks, build_parent_chunks,
@@ -183,8 +243,8 @@ async def index_document(
     vectors = await _get_embedding(child_texts)
     logger.info("Embedded: %d vectors (dim=%d)", len(vectors), len(vectors[0]) if vectors else 0)
 
-    # 4. Insert to Milvus
-    ms = await get_milvus_store()
+    # 4. Insert to vector store (pgvector default, Milvus deprecated)
+    vs = await get_vector_store()
     payloads = []
     for ci, (vec, child) in enumerate(zip(vectors, child_chunks)):
         pi = child_to_parent_idx[ci]
@@ -196,8 +256,10 @@ async def index_document(
             "filename": filename,
             "category": category,
             "audience": audience,
+            "is_published": doc.is_published,  # P0-3 修复: 同步 PG 状态到 payload
+            "content": child.content,  # pgvector 额外存子块文本 (便于 debug / 直接回显)
         })
-    ms.insert(vectors, payloads)
+    await vs.insert(vectors, payloads)
 
     elapsed = int((time.time() - start_time) * 1000)
     return {
@@ -221,12 +283,13 @@ async def retrieve(
     rewrite_strategies: Optional[List[str]] = None,
     category_filter: Optional[List[str]] = None,
     audience_filter: Optional[List[str]] = None,  # RBAC: user/staff/all
+    include_unpublished: bool = False,  # admin/audit 场景才传 True
 ) -> RetrievalResult:
     """Two-stage retrieval with hybrid (vector + BM25) + query rewriting.
 
     Stage 1: Query rewriting (if enable_rewrite) - generate candidate queries
     Stage 2: Dual recall
-      - Vector: Milvus Top-FetchK
+      - Vector: pgvector Top-FetchK (HNSW)
       - BM25: PG tsvector Top-FetchK (if enable_bm25)
       - RRF fusion
     Stage 3: aggregate by parent_id -> batch query DB -> Rerank -> Top-K parents
@@ -236,7 +299,7 @@ async def retrieve(
     from sqlalchemy import select
 
     start_time = time.time()
-    ms = await get_milvus_store()
+    vs = await get_vector_store()  # P2-基础设施: pgvector (替代 Milvus)
 
     # 0. Query rewriting (multi-strategy candidate generation)
     candidate_queries = [query]
@@ -265,28 +328,33 @@ async def retrieve(
         except Exception as e:
             logger.warning("Query rewrite failed (use original): %s", e)
 
-    # 1. Embedding + vector recall (Milvus) - 用每个 candidate query 检索后融合
+    # 1. Embedding + vector recall (pgvector HNSW) - 用每个 candidate query 检索后融合
     from app.rag.hybrid.bm25_search import rrf_fuse
+    from app.rag.retriever.normalizer import batch_normalize
     all_vector_hits = []
     for cq in candidate_queries:
         try:
-            cq_vec = (await _get_embedding([cq]))[0]
-            vh = ms.search(
+            # P0 修复: embedding 前 sanitize base64 图片 (借鉴 WeKnora §9.2)
+            cq_safe = _safe_text_for_embedding(cq)
+            cq_vec = (await _get_embedding([cq_safe]))[0]
+            vh = await vs.search(
                 cq_vec, tenant_id=tenant_id, top_k=fetch_k,
                 category_filter=category_filter,
                 audience_filter=audience_filter,
-            include_unpublished=include_unpublished,
+                include_unpublished=include_unpublished,
             )
+            # P0 优化: 归一化 pgvector cosine 分数 (借鉴 WeKnora §3.4)
+            vh = batch_normalize(vh, score_field="score", engine_type="milvus_cosine")
             all_vector_hits.extend(vh)
         except Exception as e:
             logger.warning("Vector recall for candidate %r failed: %s", cq[:30], e)
-    # RRF 融合多路 vector hits
+    # RRF 融合多路 vector hits (用归一化后的 score)
     if all_vector_hits:
         child_hits = rrf_fuse(all_vector_hits, [], k=60, vector_weight=1.0, bm25_weight=0.0)[:fetch_k]
     else:
         child_hits = []
     child_hits_count = len(child_hits)
-    logger.info("Milvus recall: %d children (tenant=%s, candidates=%d)",
+    logger.info("pgvector recall: %d children (tenant=%s, candidates=%d)",
                 child_hits_count, tenant_id, len(candidate_queries))
 
     # 2. BM25 recall (PG tsvector) - 用每个 candidate query 检索
@@ -300,34 +368,47 @@ async def retrieve(
                     async_session_maker, cq, tenant_id=tenant_id,
                     top_k=fetch_k, category_filter=category_filter,
                 )
+                # P0 优化: 归一化 BM25 分数 (sigmoid 压缩)
+                bh = batch_normalize(bh, score_field="score", engine_type="bm25")
                 all_bm25_hits.extend(bh)
             except Exception as e:
                 logger.warning("BM25 for candidate %r failed: %s", cq[:30], e)
-        # 同一 parent_id 保留最高分
+        # 同一 parent_id 保留最高分 (用归一化后的分数比较)
         if all_bm25_hits:
             best: dict[str, dict] = {}
             for h in all_bm25_hits:
                 pid = h["parent_id"]
-                if pid not in best or h["score"] > best[pid]["score"]:
+                score = h.get("normalized_score", h["score"])
+                if pid not in best or score > best[pid].get("normalized_score", best[pid]["score"]):
                     best[pid] = h
-            bm25_hits = sorted(best.values(), key=lambda x: x["score"], reverse=True)[:fetch_k]
+            bm25_hits = sorted(
+                best.values(),
+                key=lambda x: x.get("normalized_score", x["score"]),
+                reverse=True,
+            )[:fetch_k]
         logger.info("BM25 recall: %d parents (tenant=%s)", len(bm25_hits), tenant_id)
 
-    # 4. RRF fusion (vector + BM25)
+    # 4. RRF fusion (vector + BM25) — 用归一化后的分数
     if bm25_hits:
         from app.rag.hybrid.bm25_search import rrf_fuse
         # child_hits 已经是多 candidate RRF 融合的结果
         vec_for_rrf = [
-            {"parent_id": h["parent_id"], "score": h["score"],
+            {"parent_id": h["parent_id"], "score": h.get("normalized_score", h["score"]),
              "content": "", "document_id": h.get("document_id", ""),
              "filename": h.get("filename", "unknown")}
             for h in child_hits
         ]
-        fused = rrf_fuse(vec_for_rrf, bm25_hits)
+        bm25_for_rrf = [
+            {"parent_id": h["parent_id"], "score": h.get("normalized_score", h["score"]),
+             "content": h.get("content", ""), "document_id": h.get("document_id", ""),
+             "filename": h.get("filename", "unknown")}
+            for h in bm25_hits
+        ]
+        fused = rrf_fuse(vec_for_rrf, bm25_for_rrf)
         logger.info("RRF fusion: %d unique parents", len(fused))
     else:
         fused = [
-            {"parent_id": h["parent_id"], "score": h["score"],
+            {"parent_id": h["parent_id"], "score": h.get("normalized_score", h["score"]),
              "content": "", "document_id": h.get("document_id", ""),
              "filename": h.get("filename", "unknown")}
             for h in child_hits
@@ -363,7 +444,16 @@ async def retrieve(
     # 6. Batch query parent contents from business DB (fill missing)
     parent_contents: dict[str, str] = {}
     async with async_session_maker() as session:
-        stmt = select(ParentChunk).where(ParentChunk.parent_id.in_(parent_ids))
+        # P0-3 修复: 关联 Document 表, 过滤掉未发布 + 软删除的文档
+        from app.db.models import Document
+        stmt = (
+            select(ParentChunk)
+            .join(Document, ParentChunk.document_id == Document.document_id)
+            .where(ParentChunk.parent_id.in_(parent_ids))
+        )
+        if not include_unpublished:
+            stmt = stmt.where(Document.is_published == True)  # noqa: E712
+        stmt = stmt.where(Document.deleted_at.is_(None))
         rows = (await session.execute(stmt)).scalars().all()
         for r in rows:
             parent_contents[r.parent_id] = r.content
@@ -372,7 +462,11 @@ async def retrieve(
         if not hit.content:
             hit.content = parent_contents.get(pid, "")
 
-    parent_hits = list(best_by_parent.values())
+    # P0-3 修复: 过滤掉 Milvus 里的孤儿数据 (parent_id 在 PG 里查不到)
+    # 原因: 重新解析时可能删除 PG 旧 chunks, 但 Milvus 残留导致召回空内容
+    parent_hits = [h for h in best_by_parent.values() if h.content and h.content.strip()]
+    # 同步更新 best_by_parent
+    best_by_parent = {h.parent_id: h for h in parent_hits}
     parent_hits.sort(key=lambda h: h.score, reverse=True)
     parent_hits = parent_hits[: top_k * 2]
     rerank_applied = False
@@ -380,14 +474,26 @@ async def retrieve(
     if enable_rerank and len(parent_hits) > 1:
         try:
             from app.embedding import build_rerank_model
+            from app.rag.chat_pipeline.enrich import (
+                get_enriched_passage,
+                sanitize_passage_for_rerank,
+            )
+            from app.rag.retriever.normalizer import normalize_score
             reranker = build_rerank_model()
-            pairs = [[query, h.content[:500]] for h in parent_hits]
+            # P0 优化: 用 Enriched Passage (带文档名/章节), 借鉴 WeKnora §4.4
+            pairs = []
+            for h in parent_hits:
+                passage = get_enriched_passage(h, max_chars=1500)
+                passage = sanitize_passage_for_rerank(passage)
+                pairs.append([query, passage])
             scores_resp = await reranker(pairs)
             for hit, score in zip(parent_hits, scores_resp.scores):
-                hit.score = float(score)
+                # P0 优化: 归一化 rerank 分数 (BGE rerank 输出通常 [0, 1])
+                hit.score = normalize_score(float(score), engine_type="rerank")
             parent_hits.sort(key=lambda h: h.score, reverse=True)
             rerank_applied = True
-            logger.info("Rerank done: %d parents", len(parent_hits))
+            logger.info("Rerank done: %d parents (enriched passage, top score=%.4f)",
+                        len(parent_hits), parent_hits[0].score if parent_hits else 0)
         except Exception as e:
             logger.warning("Rerank failed: %s", e)
 
@@ -414,8 +520,9 @@ async def retrieve(
 
 def reset_state():
     """Reset module state (for tests)."""
-    global _milvus_store
+    global _milvus_store, _pgvector_store
     _milvus_store = None
+    _pgvector_store = None
 
 
 async def get_knowledge_stats(tenant_id: str = None) -> dict:
@@ -438,11 +545,11 @@ async def get_knowledge_stats(tenant_id: str = None) -> dict:
 
     milvus_stats = {}
     try:
-        from app.rag.milvus_store import MilvusStore
-        ms = MilvusStore()
+        from app.core.config import vector_store_config
         milvus_stats = {
-            "collection": ms.collection,
-            "dim": ms.dim,
+            "collection": "child_chunks",  # pgvector 表名 (替代 Milvus collection)
+            "dim": vector_store_config.dims,
+            "engine": vector_store_config.engine,  # pgvector / milvus (deprecated)
         }
     except Exception:
         pass

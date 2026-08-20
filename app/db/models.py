@@ -122,7 +122,8 @@ class Order(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     order_no: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    # B 端电话预约场景: 用户尚未注册 C 端账号, 允许 NULL (P1 + alembic 0010)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), index=True, nullable=True)
     branch_id: Mapped[int | None] = mapped_column(ForeignKey("branches.id"), nullable=True)
     stylist_id: Mapped[int | None] = mapped_column(ForeignKey("stylists.id"), nullable=True)
     service_id: Mapped[int | None] = mapped_column(ForeignKey("services.id"), nullable=True)
@@ -155,10 +156,40 @@ class ChatMessage(Base, TimestampMixin):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)  # 'user' | 'ai' | 'system'
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # P0-3: 会话 ID (区分多轮对话, SSE 持久化用)
+    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # 可选：关联到某个订单（如果是预约流程中产生的对话）
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
     # 模式：booking / knowledge / fallback
     mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+
+class ToolAuditLog(Base):
+    """工具调用审计日志 (P0-3: B 端管理 agent).
+
+    记录每次 agent 调工具的:
+    - 谁 (actor_id + actor_type)
+    - 干了什么 (tool_name + args + result)
+    - 权限判定 (allowed/asking/denied)
+    - 上下文 (intent, session, user_message)
+    - 何时 (created_at)
+
+    用于: 安全审计 / 异常检测 / 合规 / 用户行为分析
+    """
+    __tablename__ = "tool_audit_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    actor_type: Mapped[str] = mapped_column(String(20), nullable=False)  # staff / user / admin
+    tool_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    tool_args: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON
+    tool_result: Mapped[str | None] = mapped_column(Text, nullable=True)  # 截断 1000
+    permission: Mapped[str] = mapped_column(String(20), nullable=False)  # allowed/asking/denied
+    intent: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    user_message: Mapped[str | None] = mapped_column(Text, nullable=True)  # 截断 500
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False, index=True)
 
 
 class ChatSession(Base, TimestampMixin):
@@ -173,8 +204,7 @@ class ChatSession(Base, TimestampMixin):
     - title: 对话标题（首条消息摘要）
     - pending_order_id: 进行中的订单 ID（草稿）
     - interrupted: 是否被打断
-    - last_iter: 最后一次迭代次数
-    """
+    - last_iter: 最后一次迭代次数"""
 
     __tablename__ = "chat_sessions"
 
@@ -264,7 +294,7 @@ class PendingAction(Base, TimestampMixin):
 
 
 class ImageChunk(Base, TimestampMixin):
-    """图片块元信息（vector 存 Milvus，元信息存业务库）。
+    """图片块元信息（vector 存 pgvector child_chunks 表，元信息存业务库）。
 
     借鉴 ekbs 设计：
     - 父子结构：图片关联到父块（同一章节/页面）
@@ -295,7 +325,7 @@ class ImageChunk(Base, TimestampMixin):
 # 借鉴 ekbs (LONG_TERM_MEMORY_EKBS_AI_SERVICE.md) 的设计：
 # - Document: 文档元信息（不存内容，只存元数据）
 # - ParentChunk: 父块全文（存业务库，可按 parent_id 查询）
-# - 向量库 (Milvus) 只存子块（vector + parent_id 引用 + 元信息）
+# - 向量库 (pgvector child_chunks 表) 只存子块（vector + parent_id 引用 + 元信息）
 # - 检索：向量召回子块 → 按 parent_id 批量查业务库拿父块 → Rerank
 # 优势：父块不重复存在向量库 payload 中，节省空间 + 加快向量检索
 
@@ -337,6 +367,12 @@ class Document(Base, TimestampMixin):
     is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # P0 权限标签 (借鉴九阳 POC §5: 4 步实施法)
+    # public: C 端用户可访问 / internal: 员工可访问 / confidential: 仅管理员
+    permission_tag: Mapped[str] = mapped_column(
+        String(20), default="public", nullable=False, index=True,
+    )
+
 
 
 class ParentChunk(Base, TimestampMixin):
@@ -367,3 +403,64 @@ class ParentChunk(Base, TimestampMixin):
     chunk_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="parent_chunks")
+
+
+# ============================================================
+# P2-基础设施: pgvector 子块表 (替代 Milvus collection)
+# ============================================================
+# 借鉴 WeKnora + ekbs 设计:
+# - 子块存向量, 父块存业务库 (parent_chunks)
+# - 子块额外存 content 字段, 方便 debug 和 score >= 1 的 hit 直接回显
+# - 业务唯一 ID (child_id) 用 UUID 字符串, 对外暴露不用 BIGSERIAL
+#
+# 设计理由:
+# - 三表 (Document/ParentChunk/ChildChunk) 在同一 DB, 事务保证一致
+# - is_published JOIN Document 表查, 解决 P0-3 双源不一致
+# - hybrid search 一个 SQL 搞定 (tsvector + vector + 标量 filter)
+
+try:
+    from pgvector.sqlalchemy import Vector
+except ImportError as e:  # pragma: no cover
+    raise ImportError(
+        "pgvector 未安装. 请运行: pip install pgvector>=0.3.0"
+    ) from e
+
+
+class ChildChunk(Base):
+    """子块（向量检索单位）。
+
+    Attributes:
+        child_id: 业务唯一 ID (UUID, 对外暴露)
+        parent_id: 关联 ParentChunk.parent_id
+        tenant_id: 多租户隔离
+        document_id: 关联 Document.document_id
+        filename: 冗余存储, 检索时不用 JOIN 就能拿到
+        category: 知识库组别 (perming/cutting/coloring/care/general/image)
+        audience: 受众 (user/staff/all)
+        is_published: 冗余字段, JOIN Document 表时会再校验 (单源真相)
+        image_path: 图片专用 (image_indexer 写入)
+        content: 子块文本 (便于 debug / 直接回显 / 不用回查 parent)
+        embedding: 1024 维向量 (BGE-large-zh-v1.5)
+    """
+
+    __tablename__ = "child_chunks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    child_id: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    parent_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    document_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    category: Mapped[str] = mapped_column(String(50), default="general", nullable=False, index=True)
+    audience: Mapped[str] = mapped_column(String(20), default="all", nullable=False, index=True)
+    # 冗余字段: 单一来源仍是 Document.is_published (JOIN 时校验)
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    # 图片专用 (image_indexer 写入)
+    image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # 子块文本 (新设计: 不回查 parent 也能显示内容, 简化代码)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 1024 维向量 (BGE-large-zh-v1.5)
+    embedding = mapped_column(Vector(1024), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False,
+    )

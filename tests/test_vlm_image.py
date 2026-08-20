@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""VLM 图片 RAG 测试。"""
+"""VLM 图片 RAG 测试 (P2-基础设施, 替代 Milvus)."""
 import asyncio
 from pathlib import Path
 import pytest
 
-pytestmark = pytest.mark.keep_milvus
+pytestmark = pytest.mark.keep_pgvector  # 改 marker 名, 避免共享 child_chunks 索引被清空
 
 from app.rag.image_indexer import (
     scan_images_in_dir, embed_image, embed_images_batch,
@@ -47,13 +47,10 @@ async def indexed_images(request):
     tenant = "vlm_test"
     images_dir = "e:/mineru-output/test_30pages/auto/images"
     if not getattr(indexed_images, "_initialized", False):
-        # 第一次：drop Milvus + clear DB + index
-        from pymilvus import MilvusClient
-        c = MilvusClient(uri="http://localhost:19530")
-        for col in c.list_collections():
-            c.drop_collection(col)
-        c = None
+        # 第一次: 清空 pgvector + clear DB + index (P2-基础设施)
+        from sqlalchemy import text
         async with async_session_maker() as sess:
+            await sess.execute(text("TRUNCATE TABLE child_chunks"))
             from sqlalchemy import delete as _del
             await sess.execute(_del(ImageChunk).where(ImageChunk.tenant_id == tenant))
             await sess.commit()
@@ -135,8 +132,8 @@ async def test_embed_images_empty():
 # ===================================================================
 
 @pytest.mark.asyncio
-async def test_index_images_writes_to_db_and_milvus(indexed_images):
-    """index_images 同时写 DB + Milvus。"""
+async def test_index_images_writes_to_db_and_pgvector(indexed_images):
+    """index_images 同时写 DB + pgvector (P2-基础设施)."""
     info = indexed_images
     assert info["indexed_count"] > 0
     async with async_session_maker() as s:

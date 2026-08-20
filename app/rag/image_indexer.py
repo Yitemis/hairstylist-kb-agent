@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""图片索引：从 PDF / MinerU 输出提取图片 + 多模态 embedding + 存 Milvus + DB。
+"""图片索引：从 PDF / MinerU 输出提取图片 + 多模态 embedding + 存 pgvector + DB。
 
-复用现有 Milvus collection (hairstylist_kb)，用 category='image' 区分。
-复用 ArkVisionEmbeddingModel（多模态 embedding）支持图片。
+P2-基础设施: 改造自 Milvus 版, 现在用 pgvector (单数据源).
+复用 child_chunks 表, 用 category='image' 区分图片 vs 文本块.
+复用 ArkVisionEmbeddingModel（多模态 embedding）支持图片.
 """
 from __future__ import annotations
 
@@ -89,9 +90,9 @@ async def index_images(
         logger.exception("Image embedding failed: %s", e)
         return []
 
-    # 2. 存 Milvus（payload 含 image_path / category=image 区分）
-    from app.rag.v2_engine import get_milvus_store
-    ms = await get_milvus_store()
+    # 2. 存 pgvector (payload 含 image_path / category=image 区分)
+    from app.rag.v2_engine import get_vector_store
+    vs = await get_vector_store()
     payloads = []
     for p in paths:
         payloads.append({
@@ -100,10 +101,11 @@ async def index_images(
             "document_id": document_id,
             "filename": filename,
             "category": category,
-            "image_path": p,  # 关键：图片本地路径
+            "image_path": p,  # 关键: 图片本地路径
+            "content": "",  # 图片无文本
         })
-    ids = ms.insert(vectors, payloads)
-    logger.info("Milvus insert: %d images (doc=%s)", len(ids), document_id)
+    ids = await vs.insert(vectors, payloads)
+    logger.info("pgvector insert: %d images (doc=%s)", len(ids), document_id)
 
     # 3. 存业务库 (image_chunks)
     from app.db.models import ImageChunk
@@ -161,12 +163,13 @@ async def search_images(
     top_k: int = 5,
     document_id_filter: Optional[str] = None,
 ) -> List[dict]:
-    """图片检索：query embedding 找相关图片。
+    """图片检索: query embedding 找相关图片.
 
     Returns: [{image_id, image_path, filename, page, score}, ...]
+
+    P2-基础设施: 改用 PgvectorStore (替代 pymilvus.MilvusClient 底层调用).
     """
-    from app.rag.v2_engine import _get_embedding
-    from app.rag.milvus_store import CATEGORY_KEY as _C
+    from app.rag.v2_engine import _get_embedding, get_vector_store
     from app.db.models import ImageChunk
     from app.db.session import async_session_maker
     from sqlalchemy import select
@@ -174,47 +177,41 @@ async def search_images(
     # 1. query embedding
     query_vec = (await _get_embedding([query]))[0]
 
-    # 2. Milvus 搜索（带 category="image" filter）— 用原始 client.search 避免 image_path schema 缺失
-    from pymilvus import MilvusClient
-    client = MilvusClient(uri="http://localhost:19530")
-    # 构造 filter（与 MilvusStore.search 一致）
-    filter_parts = [f'tenant_id == "{tenant_id}"', 'category == "image"']
-    if document_id_filter:
-        filter_parts.append(f'document_id == "{document_id_filter}"')
-    filter_expr = " and ".join(filter_parts)
+    # 2. 向量检索 (pgvector 一个 SQL 完成 category=image + tenant_id 过滤)
+    vs = await get_vector_store()
     try:
-        raw_hits = client.search(
-            collection_name="hairstylist_kb",
-            data=[query_vec],
-            limit=top_k,
-            filter=filter_expr,
-            output_fields=["id", "document_id", "filename", "parent_id", "tenant_id", "category"],
+        raw_hits = await vs.search(
+            query_vec,
+            tenant_id=tenant_id,
+            top_k=top_k,
+            category_filter=["image"],  # 复用 category 字段区分图片
+            document_id_filter=document_id_filter,
+            audience_filter=None,  # 图片不受 audience 限制
         )
     except Exception as e:
-        logger.warning("Milvus image search failed: %s", e)
+        logger.warning("pgvector image search failed: %s", e)
         return []
-    if not raw_hits or not raw_hits[0]:
+    if not raw_hits:
         return []
 
-    # 3. 批量查 image_chunks 拿元信息
-    document_ids = list({h.get("document_id") for h in raw_hits[0] if h.get("document_id")})
+    # 3. 批量查 image_chunks 拿元信息 (page / width / height)
+    document_ids = list({h.get("document_id") for h in raw_hits if h.get("document_id")})
     async with async_session_maker() as session:
         stmt = select(ImageChunk).where(
             ImageChunk.tenant_id == tenant_id,
-            ImageChunk.document_id.in_(document_ids) if document_ids else ImageChunk.tenant_id == tenant_id,
         )
+        if document_ids:
+            stmt = stmt.where(ImageChunk.document_id.in_(document_ids))
         rows = (await session.execute(stmt)).scalars().all()
-    by_doc_page = {(r.document_id, r.page): r for r in rows}
-    # 没有 page 信息时退化为按 document_id
-    by_doc = {}
+
+    by_doc: dict = {}
     for r in rows:
         by_doc.setdefault(r.document_id, r)
 
-    # 4. 拼结果（按 Milvus hit 顺序，取每条对应的 image_chunks）
+    # 4. 拼结果 (按向量 hit 顺序, 取每条对应的 image_chunks)
     results = []
-    for h in raw_hits[0]:
+    for h in raw_hits:
         doc_id = h.get("document_id", "")
-        # 按 document_id 取第一个匹配的图片（page 不匹配）
         r = by_doc.get(doc_id)
         if r is None:
             continue
@@ -225,6 +222,6 @@ async def search_images(
             "page": r.page,
             "width": r.width,
             "height": r.height,
-            "score": h.get("distance", 0.0),
+            "score": h.get("score", 0.0),
         })
     return results
