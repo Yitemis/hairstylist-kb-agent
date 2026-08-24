@@ -53,3 +53,10 @@ data/uploads/
 # API schema 导出 (运行时生成)
 openapi.json
 
+
+# 业务文档 (本地学习资产 + RAG 优化报告, 不入库)
+docs/
+
+# 真实环境变量 (含 API key, 不入库)
+.env
+

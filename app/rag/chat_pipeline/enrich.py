@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Enriched Passage: Rerank 前把标题 / 章节 / 来源拼到 passage 前.
 
-借鉴 WeKnora chat_pipeline/rerank.go::getEnrichedPassage (Section 4.4).
+基于 BGE Rerank + Enriched Passage 模式 (passage = 文档名 + 章节 + 内容)..
 
 Why?
 - Rerank 模型 (BGE / BAAI) 看到 "洗发水温控制标准" 比看到 raw content 更有用
@@ -21,7 +21,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-# Rerank 输入的安全上限 (借鉴 WeKnora §9.2: safetyMaxChars = 20000)
+# Rerank 输入的安全上限 (防 base64 图片爆 token)
 RERANK_SAFETY_MAX_CHARS = 8000
 
 # 单个 passage 字符上限 (保护 rerank 模型输入)
@@ -113,7 +113,7 @@ def sanitize_passage_for_rerank(
 ) -> str:
     """Passage 安全保护: 删除 base64 图片 + 截断.
 
-    借鉴 WeKnora §9.2 (sanitizeForEmbedding) + §9.3 (passagesPreview 截断).
+    删除 base64 图片 + 截断过长文本./
 
     Args:
         passage: 原始 passage

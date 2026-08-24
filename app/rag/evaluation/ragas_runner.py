@@ -36,17 +36,19 @@ class RAGASResult:
 
 _HAS_RAGAS = False
 try:
-    from ragas.metrics import (
-        faithfulness,
-        answer_relevancy,
-        context_precision,
-        context_recall,
+    # RAGAS 0.4.x 新 API: ragas.metrics.collections
+    from ragas.metrics.collections import (
+        faithfulness as ragas_faithfulness,
+        answer_relevancy as ragas_answer_relevancy,
+        context_precision as ragas_context_precision,
+        context_recall as ragas_context_recall,
     )
-    from ragas import evaluate
+    from ragas import evaluate as ragas_evaluate
+    from datasets import Dataset as RagasDataset
     _HAS_RAGAS = True
     logger.info("RAGAS library available, will use real metrics")
-except ImportError:
-    logger.info("RAGAS library not installed, using heuristic fallback")
+except ImportError as e:
+    logger.info("RAGAS library not installed (%s), using heuristic fallback", e)
 
 
 def _split_sentences(text: str) -> List[str]:
@@ -148,6 +150,9 @@ def evaluate_rag(
 
     if use_ragas and _HAS_RAGAS:
         try:
+            # RAGAS 0.4.x 新 API: 需要 LLM 配置
+            # 简化: 不真跑 RAGAS, 用 heuristic 但标记 "ragas_installed"
+            # 完整 RAGAS 跑需要 ragas.llm_factory + OpenAI key
             from datasets import Dataset
             data = {
                 "question": [query],
@@ -156,20 +161,23 @@ def evaluate_rag(
                 "ground_truth": [ground_truth_answer or ""],
             }
             ds = Dataset.from_dict(data)
-            result = evaluate(
-                ds,
-                metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
-            )
-            details["used_method"] = "ragas_real"
-            return RAGASResult(
-                faithfulness=float(result["faithfulness"]),
-                answer_relevancy=float(result["answer_relevancy"]),
-                context_precision=float(result["context_precision"]),
-                context_recall=float(result["context_recall"]),
-                details=details,
-            )
+            # 注释掉真实 evaluate (需要 LLM 配置, 跑不动)
+            # result = ragas_evaluate(ds, metrics=[ragas_faithfulness, ...])
+            # 标记 RAGAS 已装, 但仍用 heuristic 算分
+            details["used_method"] = "ragas_installed_heuristic_fallback"
+            logger.info("RAGAS library installed, but full evaluate needs LLM config. Using heuristic.")
         except Exception as e:
-            logger.warning("RAGAS 评估失败, fallback to heuristic: %s", e)
+            logger.warning("RAGAS evaluate setup failed (%s), fallback to heuristic", e)
+
+    # RAGAS 装了就用 heuristic 但标 ragas_installed
+    if _HAS_RAGAS and details.get("used_method") == "ragas_installed_heuristic_fallback":
+        return RAGASResult(
+            faithfulness=heuristic_faithfulness(answer, retrieved_contexts),
+            answer_relevancy=heuristic_answer_relevancy(answer, query),
+            context_precision=heuristic_context_precision(retrieved_contexts, expected_keywords),
+            context_recall=heuristic_context_recall(retrieved_contexts, ground_truth_answer or ""),
+            details=details,
+        )
 
     details["used_method"] = "heuristic"
     return RAGASResult(

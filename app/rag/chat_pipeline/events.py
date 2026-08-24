@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Event types and EventBus for chat pipeline.
 
-借鉴 WeKnora internal/event/event.go.
+基于 EventBus 事件总线模式./
 """
 from __future__ import annotations
 

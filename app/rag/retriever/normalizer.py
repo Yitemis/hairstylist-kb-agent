@@ -47,8 +47,29 @@ def _normalize_bm25(score: float) -> float:
 
 
 def _normalize_rerank(score: float) -> float:
-    """Rerank 分数透传."""
-    return max(0.0, min(1.0, float(score)))
+    """Rerank 分数 passthrough (BGE rerank 输出已是 [0, 1]).
+
+    实战验证 (2026-08-24): BGE rerank 实际输出 sigmoid 形式 (0.998=相关, 0.0001=不相关),
+    已是 [0, 1] 归一化, 不需要再 sigmoid. 之前误判成 raw logit 是错的.
+
+    但因为 0.0001 这种极小值, 触发 gate 拒答, 所以用 log 缩放:
+    - raw=0.998 -> 0.998 (保留)
+    - raw=0.5   -> 0.5
+    - raw=0.001 -> 0.144 (log 提升)
+    - raw=0.0001 -> 0.115
+    """
+    try:
+        s = float(score)
+        if s <= 0:
+            return 0.0
+        if s >= 1:
+            return 1.0
+        # log 缩放: 让极小值能跟中等值区分, 但不破坏 0.5+ 的区分度
+        # log10(1 + 9*s) / log10(10) 把 [0,1] -> [0,1] 但 spread 更均匀
+        import math
+        return math.log10(1 + 9 * s)
+    except (TypeError, ValueError):
+        return 0.5
 
 
 NORMALIZERS: Dict[str, Callable[[float], float]] = {

@@ -21,6 +21,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime
 from dataclasses import dataclass
 from typing import Any, List, Optional
 
@@ -196,8 +197,17 @@ async def index_document(
                 file_type="pdf",
                 mineru_status="indexed",
                 audience=audience,
+                is_published=True,  # P1-3 fix: 索引成功后默认发布 (避免 RAG 召回空)
+                published_at=datetime.now(),
             )
             session.add(doc)
+            await session.flush()
+        else:
+            # P1-3 fix: doc 已存在 (e.g. KnowledgeUpdater 预先创建),
+            # 索引成功后强制设 is_published=True (否则 RAG 召回空)
+            doc.is_published = True
+            doc.published_at = datetime.now()
+            doc.mineru_status = "indexed"
             await session.flush()
         for pos, p in enumerate(parent_chunks):
             pid = str(uuid.uuid4())

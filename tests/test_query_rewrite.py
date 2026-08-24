@@ -96,12 +96,14 @@ async def test_retrieve_with_rewrite_improves_recall():
     from app.rag.v2_engine import index_document, retrieve, reset_state
     from sqlalchemy import delete
     from app.db.session import async_session_maker
-    from app.db.models import ParentChunk
+    from app.db.models import Document, ParentChunk, ChildChunk
 
     reset_state()
-    # cleanup
+    # 清理 (含 child_chunks 避免 pgvector 孤儿)
     async with async_session_maker() as s:
+        await s.execute(delete(ChildChunk).where(ChildChunk.tenant_id == "rewrite_test"))
         await s.execute(delete(ParentChunk).where(ParentChunk.tenant_id == "rewrite_test"))
+        await s.execute(delete(Document).where(Document.tenant_id == "rewrite_test"))
         await s.commit()
 
     # 文档里用专业表达
@@ -114,12 +116,17 @@ async def test_retrieve_with_rewrite_improves_recall():
 护发素停留时间建议 3-5 分钟后再冲洗。"""
     await index_document("rewrite_doc", content, "t.pdf", "rewrite_test", "haircare")
 
-    # 1. 不开 rewrite：口语化 query
-    r_no_rewrite = await retrieve("水温多少度", "rewrite_test", top_k=2, enable_rewrite=False)
-    # 2. 开 rewrite：多策略融合
+    # Fix: index_document 默认 is_published=False, 传 include_unpublished=True
+    # 1. 不开 rewrite: 口语化 query
+    r_no_rewrite = await retrieve(
+        "水温多少度", "rewrite_test", top_k=2,
+        enable_rewrite=False, include_unpublished=True,
+    )
+    # 2. 开 rewrite: 多策略融合
     r_with_rewrite = await retrieve(
         "水温多少度", "rewrite_test", top_k=2,
         enable_rewrite=True, rewrite_strategies=["rewrite", "selfquery"],
+        include_unpublished=True,
     )
 
     # 至少一个能召回内容
@@ -128,6 +135,13 @@ async def test_retrieve_with_rewrite_improves_recall():
     if r_no_rewrite.hits:
         # 验证内容非空
         assert any(h.content for h in r_no_rewrite.hits)
+
+    # 清理
+    async with async_session_maker() as s:
+        await s.execute(delete(ChildChunk).where(ChildChunk.tenant_id == "rewrite_test"))
+        await s.execute(delete(ParentChunk).where(ParentChunk.tenant_id == "rewrite_test"))
+        await s.execute(delete(Document).where(Document.tenant_id == "rewrite_test"))
+        await s.commit()
 
 
 def test_retrieve_default_no_rewrite():

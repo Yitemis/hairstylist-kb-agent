@@ -56,6 +56,39 @@ rag_retrievals_total = Counter(
     ["tenant_id", "result"],
 )
 
+# Harness v2 §6.2: 分阶段指标
+rag_phase_latency_seconds = Histogram(
+    "rag_phase_latency_seconds",
+    "RAG 每个阶段耗时 (秒)",
+    ["phase", "tenant_id"],
+    buckets=(0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0),
+)
+
+rag_gate_decisions_total = Counter(
+    "rag_gate_decisions_total",
+    "Quality Gate 决策计数 (proceed/refuse/rewrite_retry)",
+    ["decision", "tenant_id"],
+)
+
+rag_recall_quality_hist = Histogram(
+    "rag_recall_top1_score",
+    "粗召回 top1 分数分布",
+    ["tenant_id"],
+    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+)
+
+rag_validator_total = Counter(
+    "rag_validator_total",
+    "Answer Validator 决策 (pass/fail)",
+    ["result", "tenant_id"],
+)
+
+rag_pipeline_errors_total = Counter(
+    "rag_pipeline_errors_total",
+    "Pipeline 错误计数 (按 plugin 名)",
+    ["plugin", "tenant_id"],
+)
+
 # 直方图
 chat_request_duration_seconds = Histogram(
     "chat_request_duration_seconds",

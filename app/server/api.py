@@ -33,6 +33,7 @@ from app.db.migration import run_migrations_on_startup, get_current_revision, ge
 from app.utils.llm_extract import extract_text
 from app.safety.domain_safety import safety_filter
 from app.services import booking_service
+from app.services import chat_service
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,422 @@ async def metrics():
     from app.core.metrics import render_metrics
     body, content_type = render_metrics()
     return Response(content=body, media_type=content_type)
+
+
+# ------------------------------------------------------------------
+# Harness v2 §6.1: RAG 决策日志查询端点 (Harness Level 2+)
+# ------------------------------------------------------------------
+
+@app.post("/api/chat/stream", summary="对话接口 (SSE 流式输出)")
+async def chat_stream(
+    request: Request,
+    current: Annotated[CurrentUser, Depends(get_current_user)],
+    body: dict = None,
+):
+    """SSE 流式对话. 边生成边返回, 改善 UX.
+
+    Event 格式:
+      event: meta    data: {"trace_id": "...", "intent": "knowledge", "gate": "proceed"}
+      event: chunk   data: {"text": "..."}
+      event: sources data: [{"document_id": "...", "content": "..."}]
+      event: done    data: {"latency_ms": 1234, "answer_tokens": 100}
+      event: error   data: {"message": "..."}
+    """
+    from fastapi.responses import StreamingResponse
+    import json as _json
+
+    message = (body.get("message") or "").strip()
+    if not current:
+        raise HTTPException(status_code=401, detail="缺少身份认证")
+    if not message:
+        raise HTTPException(status_code=400, detail="消息不能为空")
+
+    user_id = current.id
+    session_id = body.get("session_id") or "default"
+
+    async def event_stream():
+        try:
+            from app.rag.chat_pipeline import (
+                PipelineContext, get_default_runner,
+            )
+            from app.db.session import async_session_maker
+            from app.db.models import ChatMessage
+            from app.rag.middleware.long_term_memory import (
+                extract_and_save_after_chat,
+            )
+
+            # 1. 加载历史
+            history = ""
+            async with async_session_maker() as session:
+                from sqlalchemy import select
+                stmt = select(ChatMessage).where(
+                    ChatMessage.user_id == user_id,
+                    ChatMessage.session_id == session_id,
+                ).order_by(ChatMessage.id.desc()).limit(20)
+                rows = (await session.scalars(stmt)).all()
+                for m in reversed(rows):
+                    prefix = "user: " if m.role == "user" else "assistant: "
+                    history += prefix + m.content + "\n"
+                # 持久化用户消息
+                session.add(ChatMessage(
+                    user_id=user_id, role="user", content=message,
+                    session_id=session_id,
+                ))
+                await session.commit()
+
+            # 2. 跑 Pipeline (非流式, 全量答案)
+            import os
+            default_tenant = os.environ.get("DEFAULT_TENANT_ID") or str(user_id)
+            ctx = PipelineContext(
+                user_id=user_id, session_id=session_id,
+                message=message, history=history,
+                role=getattr(current, "role", "user"),
+                tenant_id=default_tenant,
+            )
+            runner = get_default_runner()
+            ctx = await runner.run(ctx)
+
+            # SSE helper: 避免 f-string 多行问题
+            def sse(event, data):
+                return "event: " + event + "\ndata: " + _json.dumps(data) + "\n\n"
+
+            # 3. 事件 1: meta
+            yield sse("meta", {
+                "trace_id": ctx.trace_id,
+                "intent": ctx.intent,
+                "gate_decision": ctx.gate_decision,
+                "gate_reason": ctx.gate_reason,
+                "top1_score": round(ctx.top1_score, 3),
+                "latency_ms_total": int(sum(ctx.phase_latencies.values())),
+            })
+
+            # 4. 事件 2: 答案分块 (按字符 chunk_size 切)
+            answer = ctx.answer or ""
+            chunk_size = 20
+            for i in range(0, len(answer), chunk_size):
+                yield sse("chunk", {"text": answer[i:i+chunk_size]})
+
+            # 5. 事件 3: sources
+            if ctx.sources:
+                yield sse("sources", ctx.sources)
+
+            # 6. 事件 4: done
+            yield sse("done", {
+                "latency_ms": ctx.answer_latency_ms,
+                "phase_latencies": ctx.phase_latencies,
+                "validator_passed": ctx.validator_passed,
+            })
+
+            # 7. 持久化 AI 回复 (后台)
+            async with async_session_maker() as session:
+                session.add(ChatMessage(
+                    user_id=user_id, role="assistant",
+                    content=answer, mode=ctx.intent,
+                ))
+                await session.commit()
+
+            # 8. LTM 提取 (后台, 失败不影响响应)
+            try:
+                await extract_and_save_after_chat(user_id, message, answer)
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.exception("chat_stream failed: %s", e)
+            yield sse("error", {"message": str(e)})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # nginx 不缓冲
+        },
+    )
+
+
+@app.get("/api/rag/decision_log", summary="查询 RAG 决策日志")
+async def query_decision_log(
+    trace_id: str | None = None,
+    user_id: int | None = None,
+    intent: str | None = None,
+    gate_decision: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    """查询 RAG 决策日志 (Harness v2 §6.1).
+
+    Args:
+        trace_id: 按 trace 查 (精准)
+        user_id: 按用户查
+        intent: knowledge/booking/casual
+        gate_decision: proceed/proceed_with_warn/refuse
+        limit: 默认 50, 最大 500
+        offset: 分页
+
+    Returns:
+        list of decision_log rows + total count
+    """
+    from sqlalchemy import select, func
+    from app.db.session import async_session_maker
+    from app.db.models import RagDecisionLog
+
+    limit = min(limit, 500)
+    conditions = []
+    if trace_id:
+        conditions.append(RagDecisionLog.trace_id == trace_id)
+    if user_id is not None:
+        conditions.append(RagDecisionLog.user_id == user_id)
+    if intent:
+        conditions.append(RagDecisionLog.intent == intent)
+    if gate_decision:
+        conditions.append(RagDecisionLog.gate_decision == gate_decision)
+
+    async with async_session_maker() as session:
+        # total
+        cnt_stmt = select(func.count()).select_from(RagDecisionLog)
+        if conditions:
+            cnt_stmt = cnt_stmt.where(*conditions)
+        total = (await session.execute(cnt_stmt)).scalar() or 0
+
+        # rows
+        stmt = select(RagDecisionLog)
+        if conditions:
+            stmt = stmt.where(*conditions)
+        stmt = stmt.order_by(RagDecisionLog.created_at.desc()).limit(limit).offset(offset)
+        rows = (await session.execute(stmt)).scalars().all()
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [
+            {
+                "trace_id": r.trace_id,
+                "user_id": r.user_id,
+                "intent": r.intent,
+                "intake_route": r.intake_route,
+                "gate_decision": r.gate_decision,
+                "gate_reason": r.gate_reason,
+                "top1_score": round(r.top1_score, 4),
+                "context_count": r.context_count,
+                "citation_count": r.citation_count,
+                "validator_passed": r.validator_passed,
+                "validator_reason": r.validator_reason,
+                "version_tag": r.version_tag,
+                "phase_latencies_ms": r.phase_latencies,
+                "answer_latency_ms": r.answer_latency_ms,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "query": (r.query or "")[:200],
+                "answer_preview": (r.answer or "")[:200],
+            }
+            for r in rows
+        ],
+    }
+
+
+@app.get("/api/rag/decision_log/stats", summary="决策日志统计 (按 gate / intent / version)")
+async def decision_log_stats(days: int = 7):
+    """按 gate_decision / intent / version_tag 聚合统计 (RePlayHook 用)."""
+    from datetime import datetime, timedelta
+    from sqlalchemy import select, func
+    from app.db.session import async_session_maker
+    from app.db.models import RagDecisionLog
+
+    since = datetime.now() - timedelta(days=days)
+    async with async_session_maker() as session:
+        # by gate
+        gate_rows = (await session.execute(
+            select(
+                RagDecisionLog.gate_decision,
+                func.count().label("count"),
+                func.avg(RagDecisionLog.top1_score).label("avg_top1"),
+                func.avg(RagDecisionLog.answer_latency_ms).label("avg_latency_ms"),
+            )
+            .where(RagDecisionLog.created_at >= since)
+            .group_by(RagDecisionLog.gate_decision)
+        )).all()
+
+        # by intent
+        intent_rows = (await session.execute(
+            select(
+                RagDecisionLog.intent,
+                func.count().label("count"),
+            )
+            .where(RagDecisionLog.created_at >= since)
+            .group_by(RagDecisionLog.intent)
+        )).all()
+
+        # by version
+        version_rows = (await session.execute(
+            select(
+                RagDecisionLog.version_tag,
+                func.count().label("count"),
+                func.sum(func.cast(RagDecisionLog.validator_passed, sa_text_int())).label("passed"),
+            )
+            .where(RagDecisionLog.created_at >= since)
+            .group_by(RagDecisionLog.version_tag)
+        )).all() if False else []  # skip if sa_text_int not available
+
+        # total
+        total = (await session.execute(
+            select(func.count()).select_from(RagDecisionLog).where(RagDecisionLog.created_at >= since)
+        )).scalar() or 0
+
+    return {
+        "window_days": days,
+        "since": since.isoformat(),
+        "total": total,
+        "by_gate_decision": [
+            {
+                "gate_decision": r.gate_decision,
+                "count": r.count,
+                "avg_top1_score": round(float(r.avg_top1 or 0), 4),
+                "avg_latency_ms": round(float(r.avg_latency_ms or 0), 1),
+            }
+            for r in gate_rows
+        ],
+        "by_intent": [
+            {"intent": r.intent, "count": r.count} for r in intent_rows
+        ],
+    }
+
+
+# ------------------------------------------------------------------
+# Harness v2 §7.3: IndexAlias 蓝绿切换 API
+# ------------------------------------------------------------------
+
+@app.get("/api/rag/index_alias", summary="当前索引别名状态")
+async def get_index_alias():
+    """查看 IndexAlias 状态 (历史 + 默认 alias)."""
+    from app.rag.index_alias import get_index_alias
+    alias = get_index_alias()
+    return {
+        "default_alias": alias.DEFAULT_ALIAS,
+        "rollback_window_days": alias.ROLLBACK_WINDOW_DAYS,
+        "history": alias.get_history(),
+    }
+
+
+@app.post("/api/rag/index_alias/create", summary="建新索引别名")
+async def create_index_alias(payload: dict):
+    """建新索引 (空), 不影响 prod.
+
+    Body: {"new_index": "index_v2_bge_m3", "embedding_model": "BAAI/bge-m3"}
+    """
+    from app.rag.index_alias import get_index_alias
+    new_index = payload.get("new_index")
+    if not new_index:
+        raise HTTPException(400, "new_index required")
+    embedding_model = payload.get("embedding_model")
+    alias = get_index_alias()
+    result = await alias.create_new(new_index, embedding_model=embedding_model)
+    return {
+        "action": result.action,
+        "new_index": result.to_alias,
+        "switched_count": result.switched_count,
+        "error": result.error,
+    }
+
+
+@app.post("/api/rag/index_alias/switch", summary="切索引别名 (支持 dry_run)")
+async def switch_index_alias(payload: dict):
+    """切 alias: 老 -> 新. 默认 dry_run=True 不实际切.
+
+    Body: {"new_index": "index_v2", "old_index": "index_v1", "dry_run": true}
+    """
+    from app.rag.index_alias import get_index_alias
+    new_index = payload.get("new_index")
+    old_index = payload.get("old_index")
+    dry_run = payload.get("dry_run", True)
+    if not new_index or not old_index:
+        raise HTTPException(400, "new_index and old_index required")
+    alias = get_index_alias()
+    result = await alias.switch(new_index, old_index, dry_run=dry_run)
+    return {
+        "action": result.action,
+        "from_alias": result.from_alias,
+        "to_alias": result.to_alias,
+        "switched_count": result.switched_count,
+        "dry_run": result.dry_run,
+        "error": result.error,
+    }
+
+
+@app.post("/api/rag/index_alias/rollback", summary="回滚到上一个 alias")
+async def rollback_index_alias():
+    """回滚到 history 里的上一个 alias."""
+    from app.rag.index_alias import get_index_alias
+    alias = get_index_alias()
+    result = await alias.rollback()
+    return {
+        "action": result.action,
+        "from_alias": result.from_alias,
+        "to_alias": result.to_alias,
+        "switched_count": result.switched_count,
+        "error": result.error,
+    }
+
+
+@app.post("/api/rag/knowledge/update", summary="增量更新文档")
+async def update_document(payload: dict):
+    """触发 KnowledgeUpdater.on_document_changed.
+
+    Body: {
+      "document_id": "doc1",
+      "content": "...",
+      "filename": "x.md",
+      "tenant_id": "demo",
+      "category": "haircare" (optional),
+      "audience": "all" (optional)
+    }
+    """
+    from app.rag.knowledge_updater import (
+        ChangeEvent, get_knowledge_updater,
+    )
+    event = ChangeEvent(
+        document_id=payload.get("document_id"),
+        content=payload.get("content", ""),
+        filename=payload.get("filename", ""),
+        tenant_id=payload.get("tenant_id", "default"),
+        audience=payload.get("audience", "all"),
+        category=payload.get("category", "general"),
+        chunk_size=payload.get("chunk_size", 800),
+        chunk_overlap=payload.get("chunk_overlap", 80),
+    )
+    if not event.document_id or not event.content:
+        raise HTTPException(400, "document_id and content required")
+    updater = get_knowledge_updater()
+    result = await updater.on_document_changed(event)
+    return {
+        "action": result.action,
+        "document_id": result.document_id,
+        "version_id": result.version_id,
+        "content_hash": result.content_hash,
+        "reason": result.reason,
+        "parents": result.parents,
+        "children": result.children,
+        "latency_ms": result.latency_ms,
+        "error": result.error,
+    }
+
+
+@app.post("/api/rag/knowledge/soft_delete", summary="软删文档")
+async def soft_delete_document(payload: dict):
+    """软删文档 (不真删, RAG 自动过滤)."""
+    from app.rag.knowledge_updater import get_knowledge_updater
+    document_id = payload.get("document_id")
+    tenant_id = payload.get("tenant_id", "default")
+    if not document_id:
+        raise HTTPException(400, "document_id required")
+    updater = get_knowledge_updater()
+    result = await updater.soft_delete(document_id, tenant_id)
+    return {
+        "action": result.action,
+        "document_id": result.document_id,
+        "reason": result.reason,
+        "error": result.error,
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

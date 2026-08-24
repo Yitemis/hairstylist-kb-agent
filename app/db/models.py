@@ -331,9 +331,9 @@ class ImageChunk(Base, TimestampMixin):
 
 
 class Document(Base, TimestampMixin):
-    """知识库文档元信息。
+    """知识库文档元信息.
 
-    字段对应 MinerU 解析后的元数据 + 业务元信息。
+    字段对应 MinerU 解析后的元数据 + 业务元信息 + Harness v2 §7.1 知识更新元数据.
     """
 
     __tablename__ = "documents"
@@ -353,7 +353,7 @@ class Document(Base, TimestampMixin):
     # pending / parsing / parsed / indexed / failed
     # 业务字段
     category: Mapped[str] = mapped_column(String(50), default="general", nullable=False)
-    # 软删除
+    # 软删除 (deleted_at 兼容老代码, is_deleted 新加, 二者等价)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # 版本号（incremental update 用）
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
@@ -372,6 +372,23 @@ class Document(Base, TimestampMixin):
     permission_tag: Mapped[str] = mapped_column(
         String(20), default="public", nullable=False, index=True,
     )
+
+    # ============== Harness v2 §7.1: 知识更新元数据 ==============
+    # 内容指纹 (SHA-256, 64 字符) - 去重用
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    # 版本号 (递增, 增量更新追踪)
+    version_id: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    # 软删除标记 (和 deleted_at 等价, KnowledgeUpdater 写这个)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    # 注: updated_at 已在 TimestampMixin 中 (server_default=now()), 不重复
+    # 分块策略
+    chunk_strategy: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    chunk_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chunk_overlap: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Embedding 模型信息 (IndexAlias 切换用)
+    embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    embedding_model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    embedding_dimension: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 
@@ -403,6 +420,11 @@ class ParentChunk(Base, TimestampMixin):
     chunk_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     document: Mapped["Document"] = relationship(back_populates="parent_chunks")
+
+    # Harness v2 §7.1: ParentChunk 元数据
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    embedding_model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
 
 # ============================================================
@@ -464,3 +486,70 @@ class ChildChunk(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), nullable=False,
     )
+    # Harness v2 §7.1: Embedding 模型信息 + 索引别名 (蓝绿切换)
+    embedding_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    embedding_model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    index_alias: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, index=True, default="default",
+    )
+
+
+class RagDecisionLog(Base):
+    """RAG 决策日志 (Harness v2 §6.1): 一次 RAG 调用的完整决策日志.
+
+    借鉴 JavaGuide observability + Milvus audit 设计:
+    - trace_id 串联整条调用链
+    - 8 个阶段全部落库, 供 ReplayHook 回放 + A/B + 归因分析
+    - 失败也写 (error 字段), 便于故障排查
+    """
+    __tablename__ = "rag_decision_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trace_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), nullable=False, index=True,
+    )
+
+    # Phase 1: Intake
+    intent: Mapped[str] = mapped_column(String(20), nullable=False)
+    intake_route: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    # Phase 2: Rewrite
+    rewrite_strategies: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    rewrite_candidates: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+
+    # Phase 3: Recall
+    vector_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    bm25_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    recall_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Phase 4: Rerank
+    rerank_top_n: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    rerank_applied: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Phase 5: Gate
+    gate_decision: Mapped[str] = mapped_column(String(20), default="proceed", nullable=False)
+    gate_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    top1_score: Mapped[float] = mapped_column(default=0.0, nullable=False)
+
+    # Phase 6: Compress
+    context_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    context_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Phase 7: Generate
+    answer: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    answer_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    answer_latency_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Phase 8: Validate
+    validator_passed: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    validator_reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    citation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Meta
+    version_tag: Mapped[str] = mapped_column(String(20), default="v1", nullable=False, index=True)
+    phase_latencies: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
