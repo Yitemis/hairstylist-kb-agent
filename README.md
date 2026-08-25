@@ -1,206 +1,253 @@
+<div align="center">
+
 # 美发智能知识助手 (Hairstylist KB Agent)
 
-> 企业级 RAG + 多模态对话系统。火山方舟 LLM + 硅基流动 Embedding + **pgvector 向量库 (P2)** + PG 关系库。
+**企业级 RAG + 多智能体 知识助手 (面向美发行业 B 端)**
 
-## 📊 项目状态
+</div>
 
-- ✅ 测试: 200+ 通过
-- ✅ 代码: ~5500 行
-- ✅ Stage 1 + Stage 2 全部完成
-- ✅ P0 高可用 5/5 (JWT / 熔断 / 幂等 / 归档 / pgvector 验证)
+<div align="center">
 
-## 🏗️ 架构
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg)](https://fastapi.tiangolo.com)
+[![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org)
+[![pgvector](https://img.shields.io/badge/pgvector-0.5+-336791.svg)](https://github.com/pgvector/pgvector)
+[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](#license)
 
+[功能特性](#-功能特性) - [截图 / 演示](#-截图--演示) - [快速开始](#-快速开始) - [配置](#-配置) - [目录说明](#-目录说明)
+
+</div>
+
+---
+
+## 简介
+
+本项目是面向美发行业 B 端商家的智能知识助手, 旨在让发型师在面对客户提问时, 能快速从专业知识库中获取答案.
+
+典型场景:
+- "洗头应该用多少度的水温"
+- "某款染膏应该怎么调配"
+- "烫发的化学原理是什么"
+- "客户是否对某成分过敏"
+
+它是一个 **RAG (检索增强生成) + 多智能体** 系统, 集成:
+- 从专业理发手册自动构建的知识库
+- 多个专精 Agent (知识问答 / 预约 / 业务管理)
+- 流式答案 + 引用标注
+- 全链路决策日志
+
+---
+
+## 功能特性
+
+| | |
+|---|---|
+| **混合检索** | 向量 (pgvector HNSW) + BM25 (PG tsvector) + RRF 融合 + BGE Rerank |
+| **多智能体** | 知识问答 + 预约 (8 工具) + 业务管理 + 意图分类 |
+| **插件式 Pipeline** | 10 个按 priority 串联的插件 (Intake -> Rewrite -> Prefilter -> Recall -> Rerank -> Gate -> Compress -> Generate -> Validate -> Observe) |
+| **质量门** | 3 层 Gate + Self-RAG retry |
+| **全链路可观测** | decision_log 表 (29 字段, 8 索引) + 5 维 Prometheus 指标 |
+| **知识更新** | content_hash 去重 + 软删 + 版本追踪 + IndexAlias 蓝绿切换 |
+| **LLM 缓存** | Redis 后端, 重复 query 直接返回, 不调 LLM |
+| **生产级** | JWT 鉴权 + 幂等 + 限流 + 熔断 + RBAC 工具权限 |
+| **流式输出** | SSE (Server-Sent Events) 实时返回 |
+
+---
+
+## 调用
+
+```bash
+# 流式调用示例
+curl -N -X POST http://localhost:8000/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message":"洗头水温多少度合适?","session_id":"demo"}'
+
+# 返回 SSE 事件流:
+# event: meta    -> trace_id, intent, gate_decision, top1_score
+# event: chunk   -> "38-40 度左右"
+# event: chunk   -> "根据发质调整"
+# event: sources -> [{document_id, content, score}]
+# event: done    -> latency_ms, phase_latencies
 ```
-Client (React/Vite)
-   ↓ HTTP
-FastAPI (8000)
-   ↓ asyncpg
-   ├─ PostgreSQL 16
-   ├─ pgvector (HNSW, 跟 PG 同实例)
-   ├─ Redis (LLM cache)
-   └─ External APIs
-       ├─ 火山方舟 (ark-code-latest, multimodal)
-       └─ 硅基流动 (BAAI text embedding, rerank)
-```
 
-## 📋 环境要求
+---
+
+## 快速开始
+
+### 环境要求
 
 | 组件 | 版本 | 用途 |
-|------|------|------|
-| Python | 3.11+ | 后端 |
-| Node.js | 20+ | 前端 |
-| PostgreSQL | 16 | 业务库 + BM25 |
-| pgvector | 0.5+ | PG 扩展 (向量库) |
-| Docker | 24+ | 容器化 |
+|---|---|---|
+| Python | 3.11+ | 后端运行时 |
+| PostgreSQL | 16+ | 业务库 + 向量库 (含 pgvector 扩展) |
+| pgvector | 0.5+ | 向量检索扩展 (PG 16 自带) |
+| Redis | 7+ | LLM 缓存 + 长期记忆 |
+| Node.js | 20+ | 前端 (可选) |
+| Docker | 24+ | 容器化部署 (可选) |
 
-## 🚀 部署
+### 安装
 
-### 0. 一次性准备
-
-- 安装 **WSL**（Ubuntu 发行版，例如 `Ubuntu-Docker`），里面装 Docker Engine
-  （本项目不用 Docker Desktop，因为开发机是 Windows + Git Bash）
-- Python 3.11+ 装好，建议用 `.venv`
-- Node.js 20+
-
-### ⚡ 手动启动速记（日常 3 窗口）
-
-> **日常开发**只需开 3 个 Git Bash 窗口，每个跑一条：
+#### 方式 A: Docker Compose (推荐, 1 条命令)
 
 ```bash
-# 窗口 1 · 数据库层 (WSL Docker 2 容器: postgres + redis, P2-基础设施)
-wsl -d Ubuntu-Docker -- service docker start
-sleep 3 && wsl -d Ubuntu-Docker -- docker start hairstylist-postgres hairstylist-redis
+# 1. 克隆
+git clone https://github.com/Yitemis/hairstylist-kb-agent.git
+cd hairstylist-kb-agent
+
+# 2. 配置
+cp .env.example .env
+# 编辑 .env: 设置 JWT_SECRET (openssl rand -base64 32), CHAT_API_KEY, EMBEDDING_API_KEY
+
+# 3. 一键启动
+docker-compose up -d
+# -> API:    http://localhost:8000
+# -> Docs:   http://localhost:8000/docs
+# -> Metrics: http://localhost:9090
+
+# 4. 初始化 DB
+docker-compose exec api alembic upgrade head
+docker-compose exec api python scripts/init_test_data.py
+
+# 5. 健康检查
+curl http://localhost:8000/health
 ```
 
-```bash
-# 窗口 2 · 后端 (FastAPI, 端口 8000)
-cd e:/hairstylist-kb-agent
-PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe -m uvicorn app.server.api:app --host 0.0.0.0 --port 8000
-# 验证: curl http://localhost:8000/health  →  {"status":"healthy",...}
-```
+#### 方式 B: 本地开发 (无 Docker)
 
 ```bash
-# 窗口 3 · 前端 (Vite, 端口 5173)
-cd e:/hairstylist-kb-agent/frontend
-npm run dev
-# 验证: http://localhost:5173 (HTTP 200)
-```
-
-启动完访问：
-- 前端 http://localhost:5173
-- 后端 API 文档 http://localhost:8000/docs
-- ~~Attu (Milvus UI) http://localhost:3001~~ (已弃用, 改用 DBeaver + /api/rag/inspect)
-- DBeaver: localhost:5432 (PG `hairstylist` / `hair` / `hair123`)
-
-### 1. 启动依赖（WSL Docker 容器）
-
-容器已预建（`docker ps -a` 能看到 2 个：`hairstylist-postgres` / `hairstylist-redis`），日常只需 `start`：
-
-```bash
-# 启动 WSL Docker daemon（如已运行可跳过）
-wsl -d Ubuntu-Docker -- service docker start
-sleep 3
-
-# P2-基础设施: 2 个容器 (postgres + redis), pgvector 跟 PG 同实例
-wsl -d Ubuntu-Docker -- docker start hairstylist-postgres hairstylist-redis
-
-# 验证
-wsl -d Ubuntu-Docker -- docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-# 预期: 5432 / 6379 / 19530 / 3001 都暴露在 0.0.0.0
-```
-
-> 端口对照：PG=5432 (含 pgvector) / Redis=6379
-> 数据落盘：PG 容器自带 volume，重启不丢数据。
-> 全新机器首次部署：用对应的 `docker run` 命令（参考 `docs/INTERVIEW_NOTES.md` MVP-1）建容器再 `start`。
-
-### 2. 后端
-
-```bash
-# 装依赖
+# 1. Python 环境
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# 复制环境变量
+# 2. 启 PG + Redis
+docker-compose up -d postgres redis
+
+# 3. 配置
 cp .env.example .env
-# 编辑 .env: 填 JWT_SECRET (用 openssl rand -base64 32)
-# 填 CHAT_API_KEY / EMBEDDING_API_KEY / RERANK_API_KEY
+# 编辑 .env, 填入 API key
 
-# 初始化数据库（首次或 schema 变化时）
+# 4. 初始化 DB
 alembic upgrade head
-python scripts/init_test_data.py  # 业务数据 (分店 / 发型师 / 服务)
+python scripts/init_test_data.py
 
-# 启动 (本机用 .venv, Git Bash 必加 PYTHONIOENCODING)
-PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe -m uvicorn app.server.api:app --host 0.0.0.0 --port 8000
-```
+# 5. 启后端
+PYTHONIOENCODING=utf-8 python -m uvicorn app.server.api:app --host 0.0.0.0 --port 8000
 
-### 3. 前端
-
-```bash
+# 6. (可选) 启前端
 cd frontend
 npm install
-npm run dev  # http://localhost:5173
-# 代理 /api → http://localhost:8000
+npm run dev
+# -> http://localhost:5173
 ```
 
-### 4. 验证
+### 使用
 
-- 后端: `curl http://localhost:8000/health` → `{"status": "healthy"}`
-- 前端: `http://localhost:5173` 看登录页
-- API 文档: `http://localhost:8000/docs` (Swagger)
-- ~~Milvus UI: `http://localhost:3001`（Attu）~~ (已弃用)
-- pgvector 可视化: DBeaver `localhost:5432` / `hairstylist` / `child_chunks` 表
-- pgvector 可视化: `curl http://localhost:8000/api/rag/inspect?doc_id=xxx`
+```bash
+# 1. 健康检查
+curl http://localhost:8000/health
 
-## 📁 项目结构
+# 2. 同步调用 chat
+curl -X POST http://localhost:8000/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"染发前要做什么测试?","session_id":"test"}'
 
-```
-app/
-├── auth/                # JWT 认证
-├── core/                # 业务核心
-│   ├── config.py        # 配置 (env)
-│   ├── model_factory.py # LLM/Embedding 工厂
-│   ├── cache/           # LRU + Redis
-│   ├── concurrency/     # 分布式锁
-│   ├── gateway/         # Model Gateway (熔断+降级)
-│   ├── tools/           # Agent 工具
-│   ├── archiver.py      # 数据归档
-│   ├── metrics.py       # Prometheus 指标
-│   └── ...
-├── db/                  # SQLAlchemy 模型
-├── embedding/           # Embedding 适配器 (ark + siliconflow)
-├── rag/                 # RAG 引擎
-│   ├── v2_engine.py     # 父子分块 + 检索
-│   ├── hybrid/          # BM25 + RRF
-│   ├── query/           # 6 策略改写
-│   ├── parsers/         # PDF/Word/Excel
-│   ├── chunkers/        # 智能分块
-│   └── evaluation/      # 评估集
-├── safety/              # 敏感词 / HITL
-├── schemas/             # Pydantic
-└── server/              # FastAPI 入口
-    └── routers/          # 业务路由
+# 3. SSE 流式调用 (实时返回)
+curl -N -X POST http://localhost:8000/api/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"message":"烫发的原理是什么?","session_id":"stream1"}'
 
-tests/                   # 单元 + 集成
-alembic/                 # DB 迁移
-scripts/                 # 工具 (ingest / eval / init)
-docs/                    # 设计文档
-deploy/                  # Prometheus 配置
-frontend/                # React 前端
+# 4. 登录 (拿 JWT)
+curl -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"phone":"18800000001","password":"password123"}'
+
+# 5. 跑 RAG 评估
+python scripts/run_rag_evaluation.py en      # baseline v1
+python scripts/run_rag_evaluation_v2.py en   # Plugin Pipeline v2
 ```
 
-## 🛠️ 技术栈
+---
 
-| 类别 | 技术 |
-|------|------|
-| 后端 | FastAPI + Uvicorn + Pydantic |
-| 数据库 | PostgreSQL 16 + SQLAlchemy 2.0 |
-| 向量库 | pgvector (PG 扩展, HNSW, 1024 维) |
-| 缓存 | Redis (LLM 响应) + LRUCache (本地) |
-| Embedding | 火山方舟多模态 + 硅基流动 BAAI |
-| LLM | 火山方舟 ark-code-latest |
-| 监控 | Prometheus + Grafana |
-| 文档解析 | MinerU 2.x |
-| 前端 | React 19 + Vite + TypeScript + Tailwind |
+## 配置
 
-## 🔧 故障排查
+所有配置通过 `.env` 环境变量:
 
-| 问题 | 解决 |
-|------|------|
-| `pgvector: dim 1024 vs 2048 mismatch` | 删 child_chunks 表重建 (`TRUNCATE child_chunks`) |
-| `ConnectionRefused 8000` | `wsl -d Ubuntu-Docker -- service docker start` 再 start 容器 |
-| `JWT secret 不安全` | `openssl rand -base64 32` 重新生成 |
-| Alembic `KeyError: '0008'` | 0009 的 `down_revision` 写错了，应该是 `"0008_drop_state_json"` |
-| `[object Object]` 错误 | 响应是 array, 前端没序列化 (查 console) |
-| Embedding 401 欠费 | 改用硅基流动 (BAAI 免费) |
+| 变量 | 说明 |
+|---|---|
+| `DATABASE_URL` | PostgreSQL + pgvector 连接串 |
+| `REDIS_URL` | Redis 缓存 + 长期记忆 |
+| `CHAT_*` | LLM 调用相关 (base_url, api_key, model) |
+| `TEXT_EMBEDDING_*` | Embedding 模型 (base_url, model, dimensions) |
+| `RERANK_*` | Rerank 模型 (base_url, model) |
+| `JWT_SECRET` | 鉴权密钥 (用 `openssl rand -base64 32` 生成) |
+| `DEFAULT_TENANT_ID` | RAG 默认租户 |
+| `LLM_CACHE_SIZE` / `LLM_CACHE_TTL` | LLM 缓存配置 |
+| `RATE_LIMIT` | 每分钟限流数 |
 
-## 📚 文档
+完整字段见 [.env.example](.env.example) (含注释). **不要把真实 `.env` 提交到 git** (已在 `.gitignore`).
 
-- [docs/MASTER_ROADMAP.md](docs/MASTER_ROADMAP.md) - 完整路线图
-- [docs/INTERVIEW_NOTES.md](docs/INTERVIEW_NOTES.md) - 面试话术
-- [docs/CI_CD.md](docs/CI_CD.md) - CI/CD 流程
-- [docs/FRONTEND_PROMPTS.md](docs/FRONTEND_PROMPTS.md) - 前端 figma 提示词
-- [docs/archive/](docs/archive/) - 历史设计文档
+---
 
-## 📜 License
+## 目录说明
+
+```
+hairstylist-kb-agent/
+|-- agents/          # Agent 定义 (knowledge/booking/business/intent)
+|-- tools/           # 工具注册 + 权限 + 审计 + 业务/订单工具
+|-- memory/          # 长期记忆 LTM + 中间件
+|-- prompts/         # 系统提示词模板
+|-- skills/          # Harness v2 流程 skill 库 (8 RAG + 4 诊断)
+|-- app/             # FastAPI 服务层
+|   |-- server/      # 入口 + 路由
+|   |-- services/    # 业务逻辑
+|   |-- db/          # SQLAlchemy 模型
+|   |-- rag/         # RAG 子系统
+|   |-- auth/        # JWT
+|   +-- core/        # 跨切关注
+|-- alembic/         # DB migration
+|-- scripts/         # 一次性脚本 (ingest / eval / init)
+|-- tests/           # 200+ 单元 + 集成测试
+|-- frontend/        # React + Vite (可选管理 UI)
+|-- ops/             # Prometheus + Grafana 配置
+|-- ARCHITECTURE.md  # Plugin Pipeline 设计
+|-- docker-compose.yml
+|-- data/            # 运行时数据 (.gitignore)
++-- docs/            # 内部设计文档 (.gitignore)
+```
+
+| 目录 | 说明 |
+|---|---|
+| **agents/** | 多智能体定义: 知识问答 / 预约 / 业务管理 / 意图分类 |
+| **tools/** | 工具注册中心 + 权限分级 + 审计 + 业务/订单工具实现 |
+| **memory/** | 长期记忆 (LTM) + chat handler 集成中间件 |
+| **prompts/** | 系统提示词模板集中管理 (markdown) |
+| **skills/** | Harness v2 流程 skill 库 (8 RAG 优化 + 4 诊断) |
+| **app/** | FastAPI 服务: 路由 / 业务 / DB / RAG / 鉴权 / 核心配置 |
+| **alembic/** | DB migration 脚本 |
+| **scripts/** | 运维脚本: PDF 导入, 跑评估, 种子数据 |
+| **tests/** | 200+ 测试 (单元 + 集成) |
+| **frontend/** | React 19 + Vite 管理 UI (可选) |
+| **ops/** | Prometheus + Grafana 监控配置 |
+| **data/** | 运行时数据 (agent state, 上传) - .gitignore |
+| **docs/** | 内部设计文档 - .gitignore |
+
+Plugin Pipeline 详细设计见 [ARCHITECTURE.md](ARCHITECTURE.md).
+
+---
+
+## License
 
 Proprietary - Internal Use Only.
+
+Copyright (c) 2024-2026 Yitemis. All rights reserved.
+
+---
+
+## Acknowledgments
+
+- [AgentScope 2.0](https://github.com/modelscope/agentscope) - 多智能体框架
+- [BGE](https://github.com/FlagOpen/FlagEmbedding) - Embedding + Rerank 模型
+- [pgvector](https://github.com/pgvector/pgvector) - Postgres 向量扩展
+- [JavaGuide](https://javaguide.cn) - 工程实践参考
+- [MinerU](https://github.com/opendatalab/MinerU) - PDF 文档解析
