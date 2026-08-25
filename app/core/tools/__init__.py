@@ -1,17 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Agent 对话式下单专用工具集。"""
-from .order_tools import (
-    confirm_order,
-    create_draft_order,
-    list_stylists,
-    recommend_services,
-    update_order_fields,
-)
-
-__all__ = [
-    "confirm_order",
-    "create_draft_order",
-    "list_stylists",
-    "recommend_services",
-    "update_order_fields",
-]
+"""Backward-compat: 旧代码 from app.core.tools.X 已迁到顶层 tools/."""
+# 把所有 tools/* 的 public 名字 re-export
+from tools import *  # noqa: F401,F403
+from tools.business_tools import *  # noqa: F401,F403
+from tools.order_tools import *  # noqa: F401,F403
